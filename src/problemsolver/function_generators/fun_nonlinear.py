@@ -71,11 +71,11 @@ def keane_bump(z: np.ndarray) -> float:
 
 
 FUNCTIONS_AND_OPTIMA = {
-    # "rastrigin": (rastrigin, lambda n_dims: np.zeros(n_dims)),
-    # "sphere": (sphere, lambda n_dims: np.zeros(n_dims)),
-    # "rosenbrock": (rosenbrock, lambda n_dims: np.ones(n_dims)),
-    # "griewank": (griewank, lambda n_dims: np.zeros(n_dims)),
-    # "styblinski_tang": (styblinski_tang, lambda n_dims: np.ones(n_dims) * -2.903534),
+    "rastrigin": (rastrigin, lambda n_dims: np.zeros(n_dims)),
+    "sphere": (sphere, lambda n_dims: np.zeros(n_dims)),
+    "rosenbrock": (rosenbrock, lambda n_dims: np.ones(n_dims)),
+    "griewank": (griewank, lambda n_dims: np.zeros(n_dims)),
+    "styblinski_tang": (styblinski_tang, lambda n_dims: np.ones(n_dims) * -2.903534),
     "keane_bump": (keane_bump, lambda n_dims: np.array([-np.sqrt(2)] + [0.0] * (n_dims - 1))),
 }
 
@@ -110,9 +110,13 @@ def visualize_function(func_x: Callable, optimum: np.ndarray = None, title: str 
 
 
 if __name__ == "__main__":
+    n_dims = 2 # Assuming 2D for visualization
     for func_name in FUNCTIONS_AND_OPTIMA.keys():
-        func_z, opt_gen = FUNCTIONS_AND_OPTIMA[func_name]
-        optimum = opt_gen(2)  # Assuming 2D for visualization
+
+        # func_z, opt_gen = FUNCTIONS_AND_OPTIMA[func_name]
+        # optimum = opt_gen(n_dims)
+
+        func_z, optimum = get_function_and_optimum(func_name, n_dims)
 
         print(f"Visualizing {func_name}")
         print(f"Optimum value : {func_z(optimum): .3f} at {optimum}")
