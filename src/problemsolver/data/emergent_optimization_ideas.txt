@@ -1,0 +1,178 @@
+Bird flocks - coordinated motion emerges from local interactions
+Whale bubble-net feeding - cooperative prey capture through spiral movement
+Ant colonies - decentralized problem-solving via pheromone trails
+Genetic evolution - adaptation through selection and mutation
+Bee colonies - collective decision-making in hive activities
+Symbiotic dependencies - co-evolution of mutually beneficial traits
+Personal utility optimization - agents maximize own gain in social systems
+War games - strategic behavior emerges from competitive interactions
+Meme evolution - cultural transmission shaping collective behavior
+Altruism - individuals act to benefit others at a cost to themselves
+Fungal breeding - spore dispersal and resource optimization
+Forest chemical signaling - trees warn each other via root networks
+Slime mold pathfinding - efficient network formation from simple rules
+Firefly synchronization - phase alignment without centralized control
+Human traffic flow - self-organization in high-density movement
+Neural plasticity - networks adapt based on experience
+Opinion dynamics - consensus and polarization in populations
+Economic markets - prices emerge from distributed negotiation
+Protein folding - complex structure from local chemical interactions
+Cell differentiation - specialization in multicellular organisms
+Schooling fish - evasion and movement optimization as a group
+Urban growth - infrastructure and population co-evolution
+Magnet formation - local spin alignment producing global order
+Language evolution - syntax and grammar emerging from use
+Animal migration - large-scale navigation from individual rules
+Avalanches - phase transitions from small disturbances
+Bacterial quorum sensing - population density triggers group behavior
+Crowd evacuation - emergent routing under constraints
+Financial bubbles - market dynamics from speculative behavior
+Supply chain dynamics - oscillations from feedback and delay
+Social norm enforcement - emergent rules via peer pressure
+Microbial mats - self-organization into layered communities
+Forest succession - dynamic equilibrium of species over time
+Tumor growth - unchecked cellular reproduction under constraints
+Epigenetic regulation - gene expression modulation by environment
+Soil biomes - ecosystem complexity from microbial interactions
+River meandering - pattern formation from fluid dynamics
+Coral reef formation - cooperative construction by polyps
+Planetary ring stability - self-organized orbital configurations
+Sand dune migration - shape evolution via wind interaction
+Lichen symbiosis - stable hybrid of fungus and alga
+Swarm robotics - collective intelligence from simple units
+Brain wave synchronization - cognitive states from neuron entrainment
+Gossip spread - rapid information diffusion in networks
+Viral outbreaks - nonlinear transmission in populations
+Cultural fads - cascading adoption and abandonment
+Opinion cascades - beliefs shift through network influence
+Foraging behavior - optimal search from local feedback
+Tunneling termites - emergent architecture from soil interaction
+Cell signaling - coordinated development from chemical gradients
+Wolbachia manipulation - insect reproduction control via bacteria
+Language creoles - grammar emergence from pidgin blending
+Locust swarming - density-dependent phase transition
+Octopus camouflage - dynamic skin adaptation for blending
+Ocean currents - global circulation from local forces
+Volcanic activity - magma dynamics from pressure and flow
+Crystallization - ordered structure from molecular motion
+Ecosystem resilience - recovery after disturbance
+Smart grid response - power distribution from local balancing
+Climate feedback loops - system-level change from local shifts
+Internet traffic - data routing from decentralized protocols
+Neural crest migration - coordinated movement during development
+Social learning - behavior adoption through observation
+Chemical self-assembly - molecular organization from attraction
+Inflammation response - system-wide reaction from local injury
+Democratic voting - group choice from individual preferences
+Pack hunting - coordinated role-based pursuit strategies
+Cuckoo parasitism - reproductive strategy exploiting others
+Pheromone lures - insect behavior altered by signals
+Peacock mating - emergent aesthetics in mate choice
+Wasp nest construction - rule-based architectural patterns
+Eusocial insects - castes and division of labor
+Desertification - feedback between vegetation and soil
+Glacier calving - mass movement triggered by fractures
+Brain development - patterning from local signal gradients
+Collective intelligence - group outperforming individuals
+Reputation systems - emergent trust networks
+Game-theoretic evolution - strategy shifts under pressure
+Turbulence - chaotic flow from simple rules
+Nonlinear optics - self-focusing and soliton formation
+Dynamical quorum - behavior switches at critical mass
+Phase transitions - abrupt shifts in material states
+Parasite-host dynamics - co-adaptive feedback systems
+Fish spawning - synchronized reproduction with tides
+Epidemic tipping points - threshold behavior in spread
+Fractal growth - self-similar structure over scales
+Shell patterning - pigmentation from chemical waves
+Gravity lensing - emergent optics from mass distributions
+Crowdfunding dynamics - group investment behavior
+Game streaming virality - attention cascades online
+Ice crystal branching - snowflake formation from temperature
+Leaf venation - network optimization in plant tissues
+Gut microbiome shifts - health state transitions
+Insect gall formation - structure induced by parasites
+Bowerbird mating rituals - emergent preference signals
+Pollen competition - gamete-level selection strategies
+Group territorial defense - coordinated repulsion of intruders
+Artificial life - simulated agents with emergent properties
+Neuron spiking - population encoding from pulses
+Habitat fragmentation - ecosystem reorganization
+Epiphyte colonization - vertical competition in forests
+Flocking drones - robotics mimicking bird behavior
+Political polarization - reinforcement through echo chambers
+Fashion trends - time-sensitive collective preferences
+Coral bleaching - emergent stress signals under warming
+Honeybee dancing - spatial encoding through movement
+Protein interaction networks - functional modules from bonds
+Memristive circuits - memory from resistance feedback
+Spore dispersal - probabilistic coverage optimization
+Moon resonance locking - orbital synchronization
+Saddle-node bifurcation - stability loss in systems
+Lava lamp convection - emergent cycles in fluid
+Competitive exclusion - niche dominance in ecosystems
+Invasive species spread - nonlinear territory takeover
+Companion planting - mutual benefit through proximity
+Wolfram Rule 30 - chaotic emergence from simple logic
+Cyclic dominance - rock-paper-scissors in ecology
+Peer-to-peer networks - decentralized data sharing
+Snow avalanche - buildup and release of instability
+Synchronized menstruation - debated collective timing
+Feather preening networks - social grooming behaviors
+Wildfire propagation - patterning from feedback loops
+Ionic crystal lattice - structure from charge balance
+Hormonal regulation - feedback-driven homeostasis
+Mass protests - tipping points in collective action
+Decentralized governance - rules without rulers
+Smart material reconfiguration - shape memory behaviors
+Liquid crystal alignment - collective phase changes
+Mutual exclusion proteins - timing control in replication
+Emotional contagion - mood spread in social networks
+Insulin-glucose dynamics - regulation via feedback loops
+Stigmergy - coordination through environmental modification
+Flood pulse dynamics - nutrient cycling via water surges
+Rumen fermentation - cooperative digestion in gut biomes
+Kelp forest interactions - predator-prey-algae triads
+Saharan dust cloud - nutrient transport to rainforests
+Tsunami formation - energy transfer from seismic events
+Marangoni effect - flow induced by surface tension gradient
+Active matter swarms - emergent flow from motile particles
+Soot particle aggregation - fractal clumping in air
+Gyre formation - ocean vortex systems from current interactions
+Rainforest stratification - vertical niche partitioning
+Mycorrhizal trading - nutrient exchange networks
+Cognitive dissonance - resolution dynamics in beliefs
+Nest parasitism - strategy of brood mimicry
+Urban crime clusters - hotspots from social dynamics
+Runaway feedback - uncontrolled positive amplification
+Electoral dynamics - multi-agent competition with strategy
+Microfinance cycles - emergent repayment success factors
+Trust collapse - cascading failure in social systems
+Biogeochemical cycles - interconnected element flows
+Gravity wave interference - energy patterns from merging
+Signal jamming - adversarial optimization behavior
+Multispecies grazing - emergent equilibrium from diversity
+Microbial competition - adaptive niche splitting
+Political coalition formation - strategy negotiation and shifts
+Market arbitrage - synchronization across distributed systems
+Sandpile model - critical state behavior
+Cascading failures - infrastructure interdependence collapse
+Emergent syntax - rule creation in child language learners
+Climate tipping points - rapid system reorganization
+Shark schooling - cooperative hunting via circle formations
+Heartbeat variability - systemic stress signatures
+Self-similar traffic - load dynamics on internet backbones
+Conway's Game of Life - emergent complexity from simple rules
+Twitter storm emergence - rapid attention convergence
+Tectonic fault slip - elastic stress and sudden release
+Orchard pollination - network-level optimization from bees
+Adaptive immune response - emergent memory from exposure
+Mutation surfing - gene spread on expanding frontiers
+Bacterial biofilm resistance - collective defense behavior
+Sociotechnical lock-in - path dependency in innovation
+Mirror neuron networks - emergent empathy mechanisms
+Air traffic self-organization - congestion patterning
+Cicada emergence - prime cycle synchronization
+Amoeba aggregation - multicellular slug formation
+Spindle formation - self-assembly of cell division machinery
+Zebra striping - emergent camouflage patterning

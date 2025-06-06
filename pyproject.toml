@@ -1,0 +1,20 @@
+[tool.poetry]
+name = "problemsolver"
+version = "0.1.0"
+description = "Nonlinear problem-solving algorithms"
+authors = ["emunsing <eric.munsing@gmail.com>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.10"
+scipy = "*"
+numpy = "*"
+notebook = "*"
+matplotlib = "*"
+pandas = "*"
+openai = "*"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
