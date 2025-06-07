@@ -1,16 +1,16 @@
 import numpy as np
-from typing import Callable
+from typing import Callable, Annotated
+from problemsolver.utils import Interval
 
 def minimize(
     fun: Callable[[np.ndarray], float],
     initial_guess: np.ndarray,
     swarm_size: int = 30,
-    inertia: float = 0.7,
-    cognitive: float = 1.4,
-    social: float = 1.4,
-    n_iterations: int = 500,
-    max_iters_without_improvement: int = 10,
-    bounds: np.ndarray = None,
+    inertia: Annotated[float, Interval(0.4, 0.9)] = 0.7,
+    alpha: Annotated[float, Interval(0.2, 0.8)] = 0.5,
+    max_iters_without_improvement: int = 20,
+    n_iterations: int = 1000,
+    tol: float = 1e-6,
     seed: int = None
 ) -> np.ndarray:
     """
@@ -26,19 +26,16 @@ def minimize(
         Number of particles.
     inertia : float
         Inertia weight (w).
-    cognitive : float
-        Cognitive coefficient (c1).
-    social : float
-        Social coefficient (c2).
+    alpha: float in [0, 1]
+        Proportion of guidance given to cognitive weight c1; social weight given as [1 - alpha].
     n_iterations : int
         Maximum number of iterations.
     tol : float
         Tolerance on improvement of global best.
-    bounds : np.ndarray, optional
-        Array of shape (2, n_dim): [lower_bounds, upper_bounds].
-        If provided, particles are clamped to these bounds.
     seed : int, optional
         RNG seed.
+    max_iters_without_improvement: int, optional
+        Early stop if no change found
 
     Returns
     -------
@@ -49,16 +46,10 @@ def minimize(
     x0 = np.asarray(initial_guess, dtype=float)
     n_dim = x0.size
 
-    # Initialize particle positions + velocities
-    if bounds is not None:
-        lb, ub = bounds
-        positions = rng.uniform(lb, ub, size=(swarm_size, n_dim))
-    else:
-        # init in a small ball around x0
-        spread = 0.1 * np.maximum(1.0, np.abs(x0))
-        positions = x0 + rng.standard_normal((swarm_size, n_dim)) * spread
-
-    velocities = np.zeros((swarm_size, n_dim), dtype=float)
+    # init in a small ball around x0
+    spread = 0.1 * np.maximum(1.0, np.abs(x0))
+    positions = x0 + rng.standard_normal((swarm_size, n_dim)) * spread
+    velocities = rng.standard_normal((swarm_size, n_dim))
 
     # Personal and global bests
     pbest_pos = positions.copy()
@@ -75,14 +66,10 @@ def minimize(
         r2 = rng.random((swarm_size, n_dim))
         velocities = (
             inertia * velocities
-            + cognitive * r1 * (pbest_pos - positions)
-            + social    * r2 * (gbest_pos - positions)
+            + alpha * r1 * (pbest_pos - positions)
+            + (1-alpha) * r2 * (gbest_pos - positions)
         )
         positions += velocities
-
-        # Clamp to bounds if provided
-        if bounds is not None:
-            positions = np.minimum(np.maximum(positions, lb), ub)
 
         # Evaluate and update personal bests
         vals = np.array([fun(p) for p in positions])

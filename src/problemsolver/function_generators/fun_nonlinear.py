@@ -112,7 +112,6 @@ def visualize_function(func_x: Callable, optimum: np.ndarray = None, title: str 
 if __name__ == "__main__":
     n_dims = 2 # Assuming 2D for visualization
     for func_name in FUNCTIONS_AND_OPTIMA.keys():
-
         # func_z, opt_gen = FUNCTIONS_AND_OPTIMA[func_name]
         # optimum = opt_gen(n_dims)
 

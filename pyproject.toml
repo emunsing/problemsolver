@@ -13,6 +13,7 @@ pandas = {version = "*", extras = ["performance"]}
 click = "*"
 openai = "*"
 langchain = "*"
+optuna = "*"
 
 [build-system]
 requires = ["poetry-core"]
