@@ -3,7 +3,7 @@
 Goal: Develop novel optimization methods by using an LLM to smash up ideas from existing algorithms.
 
 API / signatures:
-- minimize(function, initial_guess: List[float], constraints: Optional[List[list[float], list[float]]])
+- minimize(function, initial_guess: List[float], constraints: Optional[List[list[float], list[float]]]) -> list[float]
 - function(x: List[float]) -> float
 
 Optimizer builder:
@@ -39,20 +39,21 @@ Steps:
 See [list of metaheuristic algorithms](https://en.wikipedia.org/wiki/Table_of_metaheuristics)
 
 Solvers:
-- L-BFGS
-- stochastic gradient descent
-- Adam
-- adamw
-- Simulated Annealing
-- Differential Evolution
-- Ant Colony Optimization 
-- Bees algorithm
-- Artificial Bee Colony
-- Particle Swarm Optimization
-- Genetic Algorithm
+- [x] L-BFGS
+- [x] stochastic gradient descent
+- [x] Adam
+- [x] adamw
+- [x] Simulated Annealing
+- [x] Differential Evolution
+- [x] Ant Colony Optimization 
+- [x] Bees algorithm
+- [x] Artificial Bee Colony
+- [x] Particle Swarm Optimization
+- [x] Genetic Algorithm
 - Whale Optimization Algorithm
 - Firefly Algorithm
 
+Combinatoric search algorithms:
 - Cuckoo Search
 - Tabu search
 
