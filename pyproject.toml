@@ -7,14 +7,12 @@ readme = "README.md"
 
 [tool.poetry.dependencies]
 python = "^3.10"
-scipy = "*"
 numpy = "*"
-notebook = "*"
-matplotlib = "*"
-pandas = "*"
-openai = "*"
+matplotlib = {version = "*", extras = []}
+pandas = {version = "*", extras = ["performance"]}
 click = "*"
-
+openai = "*"
+langchain = "*"
 
 [build-system]
 requires = ["poetry-core"]
