@@ -36,6 +36,7 @@ def model_runner(**kwargs):
     time_start = time.time()
 
     for test_func, optimum in TUNE_FUNCTIONS:
+        assert np.abs(test_func(optimum)) > 1e-3, "Optimal value should not be near-zero"
         x_hat = minimize(fun=test_func, initial_guess=np.zeros(N_DIMS_TUNE), **kwargs)
         log_rel_errors.append(np.log10(np.abs(test_func(x_hat) - test_func(optimum)) / np.abs(test_func(optimum))))
 

@@ -31,26 +31,26 @@ def generate_transformed_function(func_z: Callable[[np.ndarray], float], optimum
 
 def rastrigin(x):
     A = 10.0
-    return A * len(x) + np.sum(x ** 2 - A * np.cos(2 * np.pi * x))
+    return A * len(x) + np.sum(x ** 2 - A * np.cos(2 * np.pi * x)) + 1
 
 
 def sphere(x):
-    return np.sum(x ** 2)
+    return np.sum(x ** 2) + 1.0
 
 
 def rosenbrock(x):
-    return np.sum(100.0 * (x[1:] - x[:-1] ** 2) ** 2 + (1 - x[:-1]) ** 2)
+    return np.sum(100.0 * (x[1:] - x[:-1] ** 2) ** 2 + (1 - x[:-1]) ** 2) + 1
 
 
 def griewank(z: np.ndarray) -> float:
     n_dims = len(z)
     sum_sq = np.sum(z**2)
     prod_cos = np.prod(np.cos(z / np.sqrt(np.arange(1, n_dims + 1))))
-    return 1 + sum_sq / 4000 - prod_cos
+    return 1 + sum_sq / 4000 - prod_cos + 1
 
 
 def styblinski_tang(z: np.ndarray) -> float:
-    return 0.5 * np.sum(z**4 - 16 * z**2 + 5 * z)
+    return 0.5 * np.sum(z**4 - 16 * z**2 + 5 * z) + 1
 
 
 def keane_bump(z: np.ndarray) -> float:
