@@ -73,7 +73,7 @@ def minimize(
     initial_guess: np.ndarray,
     n_hops: Annotated[int, Interval(low=20, high=500, step=20, log=False)] = 100,
     step_size: Annotated[float, Interval(low=0.1, high=2.0, step=0.1, log=False)] = 0.5,
-    T: Annotated[float, Interval(low=0.1, high=10.0, step=0.1, log=True)] = 1.0,
+    T: Annotated[float, Interval(low=0.1, high=10.0, step=None, log=True)] = 1.0,
     m: int = 10,
     tol: float = 1e-6
 ) -> np.ndarray:

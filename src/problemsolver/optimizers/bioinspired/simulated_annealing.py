@@ -5,12 +5,12 @@ from problemsolver.utils import Interval
 def minimize(
     fun: Callable[[np.ndarray], float],
     initial_guess: np.ndarray,
-    initial_temp: Annotated[float, Interval(low=0.1, high=10.0, step=0.1, log=True)] = 1.0,
+    initial_temp: Annotated[float, Interval(low=0.1, high=10.0, step=None, log=True)] = 1.0,
     final_temp: float = 1e-3,
     alpha: Annotated[float, Interval(low=0.8, high=0.99, step=0.01, log=False)] = 0.9,
     n_iter_per_temp: int = 100,
     max_iters_without_improvement: int = 10,
-    step_size: Annotated[float, Interval(low=0.01, high=1.0, step=0.01, log=True)] = 0.1,
+    step_size: Annotated[float, Interval(low=0.01, high=1.0, step=None, log=True)] = 0.1,
     seed: int = None
 ) -> np.ndarray:
     """

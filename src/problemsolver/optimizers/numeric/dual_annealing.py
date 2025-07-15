@@ -66,12 +66,11 @@ def minimize_lbfgs(
     return x
 
 # --- Dual-Annealing Global Optimizer ---
-def dual_annealing(
+def minimize(
     fun: Callable[[np.ndarray], float],
-    bounds: np.ndarray,
-    initial_guess: Optional[np.ndarray] = None,
+    initial_guess: np.ndarray,
     n_iterations: int = 200,
-    temp_max: Annotated[float, Interval(low=100.0, high=10000.0, step=100.0, log=True)] = 5230.0,
+    temp_max: Annotated[float, Interval(low=100.0, high=10000.0, step=None, log=True)] = 5230.0,
     temp_min: float = 1e-3,
     visit: Annotated[float, Interval(low=1.5, high=5.0, step=0.1, log=False)] = 2.62,
     accept: Annotated[float, Interval(low=0.1, high=5.0, step=0.1, log=False)] = 1.0,
@@ -81,20 +80,18 @@ def dual_annealing(
     seed: Optional[int] = None
 ) -> np.ndarray:
     """
-    Dual-Annealing–style optimizer.
+    Dual-Annealing–style optimizer for unbounded optimization.
 
     Parameters
     ----------
     fun : Callable[[np.ndarray], float]
         Objective to minimize.
-    bounds : np.ndarray, shape (2, n_dim)
-        Lower and upper bounds for each dimension.
-    initial_guess : np.ndarray, optional
-        Starting point; if None, begins at the center of bounds.
+    initial_guess : np.ndarray
+        Starting point for optimization.
     n_iterations : int
         Total global annealing steps (hops).
     temp_max, temp_min : float
-        Starting and ending “temperatures.”
+        Starting and ending "temperatures."
     visit : float
         Visiting distribution parameter (>1 for Cauchy-like steps).
     accept : float
@@ -112,14 +109,14 @@ def dual_annealing(
         Best-found solution.
     """
     rng = np.random.default_rng(seed)
-    lb, ub = bounds
-    n_dim = lb.size
+    x_curr = np.array(initial_guess, dtype=float)
+    n_dim = x_curr.size
 
-    # Initialize current point
-    if initial_guess is None:
-        x_curr = lb + 0.5 * (ub - lb)
-    else:
-        x_curr = np.clip(initial_guess, lb, ub).astype(float)
+    # Define search bounds based on initial guess
+    # Use a reasonable search range around the initial guess
+    spread = 10.0 * np.maximum(1.0, np.abs(x_curr))
+    lb = x_curr - spread
+    ub = x_curr + spread
 
     f_curr = fun(x_curr)
     x_best, f_best = x_curr.copy(), f_curr

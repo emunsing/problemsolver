@@ -5,9 +5,9 @@ from problemsolver.utils import Interval
 def minimize(
     fun: Callable[[np.ndarray], float],
     initial_guess: np.ndarray,
-    learning_rate: Annotated[float, Interval(low=1e-4, high=1e-1, step=1e-4, log=True)] = 0.01,
+    learning_rate: Annotated[float, Interval(low=1e-4, high=1e-1, step=None, log=True)] = 0.01,
     n_iterations: int = 1000,
-    epsilon: Annotated[float, Interval(low=1e-4, high=1e-1, step=1e-4, log=True)] = 1e-3,
+    epsilon: Annotated[float, Interval(low=1e-4, high=1e-1, step=None, log=True)] = 1e-3,
     n_directions: Annotated[int, Interval(low=5, high=50, step=5, log=False)] = 10,
     atol: float = 1e-6,
     rtol: float = 1e-6,

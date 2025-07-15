@@ -8,7 +8,7 @@ def minimize(
     pop_size: Annotated[int, Interval(low=20, high=200, step=10, log=False)] = 30,
     alpha: Annotated[float, Interval(low=0.1, high=1.0, step=0.05, log=False)] = 0.5,
     beta0: Annotated[float, Interval(low=0.1, high=1.0, step=0.05, log=False)] = 0.5,
-    gamma: Annotated[float, Interval(low=0.1, high=10.0, step=0.1, log=True)] = 1.0,
+    gamma: Annotated[float, Interval(low=0.1, high=10.0, step=None, log=True)] = 1.0,
     n_iterations: int = 100,
     bounds: np.ndarray = None,
     max_iters_without_improvement: int = 10,

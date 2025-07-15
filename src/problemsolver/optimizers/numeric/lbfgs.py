@@ -48,7 +48,7 @@ def _backtracking_line_search(
             # stepsize too small
             return alpha, f_new
 
-def minimize_lbfgs(
+def minimize(
     fun: Callable[[np.ndarray], float],
     initial_guess: np.ndarray,
     m: Annotated[int, Interval(low=5, high=50, step=5, log=False)] = 10,

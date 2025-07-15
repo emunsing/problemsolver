@@ -80,9 +80,13 @@ def minimize(
                 parent2 = tournament_select(pop, fitness)
                 child = (parent1 + parent2) / 2
                 new_pop.append(child)
+            else:
+                # If no crossover, just copy a random parent
+                parent = tournament_select(pop, fitness)
+                new_pop.append(parent.copy())
 
         # Mutation
-        for i in range(pop_size):
+        for i in range(len(new_pop)):
             if rng.random() < mutation_rate:
                 new_pop[i] += rng.standard_normal(dim) * mutation_scale
 
