@@ -1,6 +1,6 @@
 from inspect import signature
-from typing import Annotated, Callable
-from utils import Interval
+from typing import Annotated, Callable, get_origin, get_args
+from problemsolver.utils import Interval
 from problemsolver.function_generators import fun_nonlinear as fun_generator
 from problemsolver.optimizers.bioinspired.pso import minimize
 import optuna
@@ -54,16 +54,20 @@ def make_optuna_objective(minimizer_to_test: Callable) -> Callable:
     def optuna_loss(trial):
         kwargs = {}
         for name, param in sig.parameters.items():
+            if name in ['fun', 'initial_guess']:
+                continue
             anno = param.annotation
-            if getattr(anno, "__origin__", None) is Annotated:
-                base_type, meta = anno.__args__[0], anno.__metadata__[0]
+            if get_origin(anno) is Annotated:
+                base_type, meta = get_args(anno)
                 if isinstance(meta, Interval):
                     if base_type is int:
+                        step = meta.step if meta.step is not None else 1
                         kwargs[name] = trial.suggest_int(name, meta.low, meta.high,
-                                                         step=meta.step, log=meta.log)
+                                                         step=step, log=meta.log)
                     else:
+                        step = meta.step if meta.step is not None else (meta.high - meta.low) / 100
                         kwargs[name] = trial.suggest_float(name, meta.low, meta.high,
-                                                           step=meta.step, log=meta.log)
+                                                           step=step, log=meta.log)
                 elif isinstance(meta, list) and base_type is str:
                     kwargs[name] = trial.suggest_categorical(name, meta)
                 else:

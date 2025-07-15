@@ -5,9 +5,9 @@ from problemsolver.utils import Interval
 def minimize(
     fun: Callable[[np.ndarray], float],
     initial_guess: np.ndarray,
-    swarm_size: int = 30,
-    inertia: Annotated[float, Interval(0.4, 0.9)] = 0.7,
-    alpha: Annotated[float, Interval(0.2, 0.8)] = 0.5,
+    swarm_size: Annotated[int, Interval(low=10, high=100)] = 30,
+    inertia: Annotated[float, Interval(low=0.4, high=0.9)] = 0.7,
+    alpha: Annotated[float, Interval(low=0.2, high=0.8)] = 0.5,
     max_iters_without_improvement: int = 20,
     n_iterations: int = 1000,
     tol: float = 1e-6,
