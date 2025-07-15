@@ -1,16 +1,17 @@
-from typing import Callable, Optional
+from typing import Callable, Optional, Annotated
 import numpy as np
+from problemsolver.utils import Interval
 
 def minimize(
     fun: Callable[[np.ndarray], float],
     initial_guess: np.ndarray,
-    learning_rate: float = 0.01,
+    learning_rate: Annotated[float, Interval(low=1e-4, high=1e-1, step=1e-4, log=True)] = 0.01,
     n_iterations: int = 1000,
-    epsilon: float = 1e-3,
+    epsilon: Annotated[float, Interval(low=1e-4, high=1e-1, step=1e-4, log=True)] = 1e-3,
     n_directions: int = 10,
     atol: float = 1e-6,
     rtol: float = 1e-6,
-    beta1: float = 0.9,
+    beta1: Annotated[float, Interval(low=0.5, high=0.99, step=0.01, log=False)] = 0.9,
     seed: Optional[int] = None
 ) -> np.ndarray:
     """

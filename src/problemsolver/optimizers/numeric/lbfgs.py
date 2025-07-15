@@ -1,5 +1,6 @@
 import numpy as np
-from typing import Callable, Optional, Tuple
+from typing import Callable, Optional, Tuple, Annotated
+from problemsolver.utils import Interval
 
 def _finite_diff_grad(
     fun: Callable[[np.ndarray], float],
@@ -50,9 +51,9 @@ def _backtracking_line_search(
 def minimize_lbfgs(
     fun: Callable[[np.ndarray], float],
     initial_guess: np.ndarray,
-    m: int = 10,
+    m: Annotated[int, Interval(low=5, high=50, step=5, log=False)] = 10,
     tol: float = 1e-6,
-    maxiter: int = 500
+    maxiter: int = 1000
 ) -> np.ndarray:
     """
     Limited‐memory BFGS (L-BFGS) optimizer.

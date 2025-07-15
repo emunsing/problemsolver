@@ -1,13 +1,14 @@
 import numpy as np
-from typing import Callable
+from typing import Callable, Annotated
+from problemsolver.utils import Interval
 
 def minimize(
     fun: Callable[[np.ndarray], float],
     initial_guess: np.ndarray,
-    pop_size: int = 50,
+    pop_size: Annotated[int, Interval(low=20, high=200, step=10, log=False)] = 50,
     n_generations: int = 200,
-    crossover_rate: float = 0.8,
-    mutation_rate: float = 0.1,
+    crossover_rate: Annotated[float, Interval(low=0.5, high=0.95, step=0.05, log=False)] = 0.8,
+    mutation_rate: Annotated[float, Interval(low=0.01, high=0.3, step=0.01, log=False)] = 0.1,
     mutation_scale: float = 0.1,
     tournament_size: int = 3,
     max_iters_without_improvement: int = 10,

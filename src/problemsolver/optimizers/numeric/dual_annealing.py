@@ -1,5 +1,6 @@
 import numpy as np
-from typing import Callable, List, Optional, Tuple
+from typing import Callable, List, Optional, Tuple, Annotated
+from problemsolver.utils import Interval
 
 
 # --- (Reuse the finite-difference L-BFGS from before) ---
@@ -70,10 +71,10 @@ def dual_annealing(
     bounds: np.ndarray,
     initial_guess: Optional[np.ndarray] = None,
     n_iterations: int = 200,
-    temp_max: float = 5230.0,
+    temp_max: Annotated[float, Interval(low=100.0, high=10000.0, step=100.0, log=True)] = 5230.0,
     temp_min: float = 1e-3,
-    visit: float = 2.62,
-    accept: float = 1.0,
+    visit: Annotated[float, Interval(low=1.5, high=5.0, step=0.1, log=False)] = 2.62,
+    accept: Annotated[float, Interval(low=0.1, high=5.0, step=0.1, log=False)] = 1.0,
     local_search_interval: int = 20,
     local_m: int = 6,
     local_tol: float = 1e-6,

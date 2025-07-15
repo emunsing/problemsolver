@@ -1,5 +1,6 @@
 import numpy as np
-from typing import Callable, Tuple, Optional
+from typing import Callable, Tuple, Optional, Annotated
+from problemsolver.utils import Interval
 
 def _finite_diff_grad(
     fun: Callable[[np.ndarray], float],
@@ -70,9 +71,9 @@ def minimize_lbfgs(
 def minimize(
     fun: Callable[[np.ndarray], float],
     initial_guess: np.ndarray,
-    n_hops: int = 100,
-    step_size: float = 0.5,
-    T: float = 1.0,
+    n_hops: Annotated[int, Interval(low=20, high=500, step=20, log=False)] = 100,
+    step_size: Annotated[float, Interval(low=0.1, high=2.0, step=0.1, log=False)] = 0.5,
+    T: Annotated[float, Interval(low=0.1, high=10.0, step=0.1, log=True)] = 1.0,
     m: int = 10,
     tol: float = 1e-6
 ) -> np.ndarray:

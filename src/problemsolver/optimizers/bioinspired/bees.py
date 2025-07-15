@@ -1,16 +1,17 @@
 import numpy as np
-from typing import Callable
+from typing import Callable, Annotated
+from problemsolver.utils import Interval
 
 def minimize(
     fun: Callable[[np.ndarray], float],
     initial_guess: np.ndarray,
-    n_sites: int = 5,
-    n_elite: int = 2,
-    n_elite_bees: int = 10,
-    n_other_bees: int = 5,
-    n_scouts: int = 20,
-    patch_size: float = 0.1,
-    shrink_factor: float = 0.9,
+    n_sites: Annotated[int, Interval(low=3, high=20, step=1, log=False)] = 5,
+    n_elite: Annotated[int, Interval(low=1, high=5, step=1, log=False)] = 2,
+    n_elite_bees: Annotated[int, Interval(low=5, high=30, step=5, log=False)] = 10,
+    n_other_bees: Annotated[int, Interval(low=2, high=15, step=1, log=False)] = 5,
+    n_scouts: Annotated[int, Interval(low=10, high=50, step=5, log=False)] = 20,
+    patch_size: Annotated[float, Interval(low=0.01, high=1.0, step=0.01, log=True)] = 0.1,
+    shrink_factor: Annotated[float, Interval(low=0.8, high=0.99, step=0.01, log=False)] = 0.9,
     n_iterations: int = 100,
     max_iters_without_improvement: int = 10,
     seed: int = None
