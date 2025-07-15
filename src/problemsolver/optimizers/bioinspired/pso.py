@@ -5,13 +5,13 @@ from problemsolver.utils import Interval
 def minimize(
     fun: Callable[[np.ndarray], float],
     initial_guess: np.ndarray,
-    swarm_size: Annotated[int, Interval(low=10, high=100)] = 30,
-    inertia: Annotated[float, Interval(low=0.4, high=0.9)] = 0.7,
-    alpha: Annotated[float, Interval(low=0.2, high=0.8)] = 0.5,
+    swarm_size: Annotated[int, Interval(low=10, high=100, step=5, log=False)] = 30,
+    inertia: Annotated[float, Interval(low=0.4, high=0.9, step=0.1, log=False)] = 0.7,
+    alpha: Annotated[float, Interval(low=0.2, high=0.8, step=0.1, log=False)] = 0.5,
     max_iters_without_improvement: int = 20,
     n_iterations: int = 1000,
-    tol: float = 1e-6,
-    seed: int = None
+    tol: float = 1e-6, # TODO: Make this a globally tunable parameter
+    seed: int = None,
 ) -> np.ndarray:
     """
     Particle Swarm Optimization (PSO).
