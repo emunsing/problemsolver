@@ -71,7 +71,7 @@ class OptimizerGenerator:
         """Get the system prompt for the LLM."""
         return """You are an expert researcher in nonconvex/nonlinear mathematical optimization techniques and an expert programmer in Python. 
 
-Your task is to create novel optimization algorithms inspired by emergent behaviors in nature and complex systems. You should:
+Your task is to create novel numerical optimization algorithms inspired by emergent behaviors in nature and complex systems. You should:
 
 1. Think critically about how the given emergent behavior could inspire novel minimization techniques
 2. Consider the mathematical principles underlying the behavior
@@ -96,12 +96,18 @@ You must create a complete, runnable Python function that can be executed immedi
   - Accuracy and efficiency will be evaluated by a downstream test script which takes functions of the standard signature.
   - Randomly generated functions will be used to tune the optimizer's hyperparameters with a standard hyperparameter tuner with a fixed budget.
   - The tuned optimizer will be tested on a set of test functions drawn from the same distribution.
-  - Expect that winning designs should be able to be better than a 1e-4 relative error and less than 0.1s average compute time per random 2-d test function.
   - Because the test functions are drawn randomly, you cannot attempt to overfit to the test metric.
   - Problems which take more than a time limit (several seconds) will be considered failures; consider this when designing your algorithm.
 - Consider how the emergent behavior's principles can be mathematically modeled concisely.
 - Think about what makes this behavior effective in nature and how to translate that to optimization
 - Choose implementations which are efficient and scalable, avoiding unnecessary complexity or computationally expensive operations
+
+# TEST FUNCTION ASSUMPTIONS:
+- Each test function has a global minimum somewhere in the [-10, 10] hypercube
+- Functions are smooth, continuous, real-valued, and bounded below
+- Functions have a global minimum but also has many local minima and saddle points
+- Functions may take arbitrary dimensionality
+- Winning designs will achieve a relative error better than 1e-4 and less than 0.1s average compute time when solving a 2-d test function.
 
 REQUIREMENTS:
 1. Function signature must include a callable problem function and an initial guess in addition to hyperparameters in kwargs, following the form: `minimize(fun: Callable[[np.ndarray], float], initial_guess: np.ndarray, **kwargs) -> np.ndarray`
@@ -629,7 +635,7 @@ Please create an improved version that addresses these specific issues. Focus on
                 previous_code = final_code
                 continue
             
-            print(f"Performance: log_rel_error={performance['log_rel_error']:.3f}, time={performance['time_elapsed']:.2f}s")
+            print(f"Performance: log_rel_error={performance['log_rel_error']:.3f}, time={performance['time_elapsed']:.4f}s")
             self.save_optimizer_performance(self.all_performance_file, performance)
 
             # Check if it advances the Pareto frontier
