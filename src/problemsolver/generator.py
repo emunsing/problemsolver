@@ -605,7 +605,7 @@ Please create an improved version that addresses these specific issues. Focus on
                 continue
             
             # Create a unique name for the optimizer
-            optimizer_name = f"minimize_{to_camel_case(inspiration.split(":")[0])}_{attempt + 1}"
+            optimizer_name = f"minimize_{to_camel_case(inspiration.split(':')[0])}_{attempt + 1}"
             
             # Benchmark the optimizer
             try:
