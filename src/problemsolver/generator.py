@@ -234,61 +234,50 @@ Please fix the error and return the corrected Python function. Ensure it follows
 
     def validate_optimizer_code(self, optimizer_func: Callable, raw_code: str, original_prompt: str, max_iterations: int = 5) -> Tuple[bool, Optional[Callable], str, str]:
         """Validate the optimizer function through multiple iterations of debugging."""
-        
+        try:
+            check_optimizer_annotations(optimizer_func)
+        except ValueError as ve:
+            if "No Annotated parameters with Interval" in str(ve):
+                print(f"Annotation error; continuing: {str(ve)}")
+            else:
+                raise ve
+        check_optimizer_function(optimizer_func)
+        return True, optimizer_func, raw_code, ""   # If we get here, the function is valid
+
+
+    def generate_optimizer(self, messages, original_prompt, max_iterations: int = 5) -> Tuple[bool, Optional[Callable], str, str]:
+        """Generate a new optimizer based on the inspiration."""
+        success = False
+        final_func = None
+        final_code = ""
+        raw_code = "No code generated yet; please retry."
+        error_msg = ""
+
         for iteration in range(max_iterations):
             try:
-                try:
-                    check_optimizer_annotations(optimizer_func)
-                except ValueError as ve:
-                    if "No Annotated parameters with Interval" in str(ve):
-                        print(f"Annotation error; continuing: {str(ve)}")
-                    else:
-                        raise ve
-                check_optimizer_function(optimizer_func)
-                return True, optimizer_func, raw_code, ""   # If we get here, the function is valid
-                
+                response = self.llm.invoke(messages)
+                optimizer_func, raw_code = self.extract_func_and_code_from_response(response.content)
+
+                # Validate and debug
+                success, final_func, final_code, error_msg = self.validate_optimizer_code(optimizer_func,
+                                                                          raw_code=raw_code,
+                                                                          original_prompt=original_prompt)
             except Exception as e:
                 error_msg = str(e)
-                print(f"Iteration {iteration + 1}: Error - {error_msg}")
-                
-                if iteration < max_iterations - 1:
-                    # Get debug prompt and regenerate
-                    debug_prompt = self.get_debug_prompt(original_prompt, raw_code, error_msg)
-                    messages = [
-                        SystemMessage(content=self.get_system_prompt()),
-                        HumanMessage(content=debug_prompt)
-                    ]
-                    
-                    response = self.llm.invoke(messages)
-                    optimizer_func, raw_code = self.extract_func_and_code_from_response(response.content)
-        
-        return False, None, raw_code, "Max iterations reached"
+                print(f"Iteration {iteration + 1} optimizer generation: Error - {error_msg}")
+                debug_prompt = self.get_debug_prompt(original_prompt, raw_code, error_msg)
+                messages = [
+                    SystemMessage(content=self.get_system_prompt()),
+                    HumanMessage(content=debug_prompt)
+                ]
+                continue
 
-    def generate_optimizer(self, inspiration: str) -> Tuple[bool, Optional[Callable], str, str]:
-        """Generate a new optimizer based on the inspiration."""
-        print(f"Generating optimizer inspired by: {inspiration}")
-        
-        # Generate initial code
-        generation_prompt = self.get_generation_prompt(inspiration)
-        messages = [
-            SystemMessage(content=self.get_system_prompt()),
-            HumanMessage(content=generation_prompt)
-        ]
-        
-        response = self.llm.invoke(messages)
-        optimizer_func, raw_code = self.extract_func_and_code_from_response(response.content)
-
-        # Validate and debug
-        success, final_func, final_code, error = self.validate_optimizer_code(optimizer_func,
-                                                                  raw_code=raw_code,
-                                                                  original_prompt=generation_prompt)
-        
         if success:
             print("✓ Optimizer code generated successfully")
         else:
-            print(f"✗ Failed to generate valid optimizer: {error}")
-        
-        return success, final_func, final_code, error
+            print(f"✗ Failed to generate valid optimizer: {error_msg}")
+
+        return success, final_func, final_code, error_msg
 
     def benchmark_new_optimizer(self, optimizer_func: Callable, optimizer_name: str) -> Optional[Dict]:
         """Benchmark the new optimizer and return performance metrics."""
@@ -595,14 +584,11 @@ Please create an improved version that addresses these specific issues. Focus on
                 HumanMessage(content=generation_prompt)
             ]
 
-            response = self.llm.invoke(messages)
-            optimizer_func, raw_code = self.extract_func_and_code_from_response(response.content)
-            
             # Validate the optimizer
-            success, final_func, final_code, error = self.validate_optimizer_code(optimizer_func,
-                                                                  raw_code=raw_code,
-                                                                  original_prompt=generation_prompt)
-            
+            success, final_func, final_code, error = self.generate_optimizer(messages=messages,
+                                                                             original_prompt=generation_prompt,
+                                                                             )
+
             if not success or final_func is None:
                 print(f"Generation failed: {error}")
                 failure_analysis = {
