@@ -96,6 +96,7 @@ You must create a complete, runnable Python function that can be executed immedi
   - Accuracy and efficiency will be evaluated by a downstream test script which takes functions of the standard signature.
   - Randomly generated functions will be used to tune the optimizer's hyperparameters with a standard hyperparameter tuner with a fixed budget.
   - The tuned optimizer will be tested on a set of test functions drawn from the same distribution.
+  - Expect that winning designs should be able to be better than a 1e-4 relative error and less than 0.1s average compute time per random 2-d test function.
   - Because the test functions are drawn randomly, you cannot attempt to overfit to the test metric.
   - Problems which take more than a time limit (several seconds) will be considered failures; consider this when designing your algorithm.
 - Consider how the emergent behavior's principles can be mathematically modeled concisely.
@@ -196,6 +197,30 @@ Please fix the error and return the corrected Python function. Ensure it follows
 
             initial_code = '\n'.join(code_lines) if code_lines else response
 
+        # Filter out Interval class definitions
+        filtered_lines = []
+        skip_until_class_end = False
+        
+        for line in initial_code.split('\n'):
+            stripped = line.strip()
+            
+            # Check if this line starts an Interval class definition
+            if stripped.startswith('class Interval'):
+                skip_until_class_end = True
+                continue
+            
+            # If we're in an Interval class, skip until we find the end
+            if skip_until_class_end:
+                # Check if we've reached the end of the class (no indentation or empty line)
+                if not stripped or (stripped and not line.startswith(' ') and not line.startswith('\t')):
+                    skip_until_class_end = False
+                continue
+            
+            # Include all other lines
+            filtered_lines.append(line)
+        
+        filtered_code = '\n'.join(filtered_lines)
+
         # Create a function from the code
         # Create a namespace with necessary imports
         namespace = {
@@ -203,9 +228,9 @@ Please fix the error and return the corrected Python function. Ensure it follows
             'Annotated': Annotated,
             'Interval': Interval
         }
-        exec(initial_code, namespace)
+        exec(filtered_code, namespace)
         optimizer_func = namespace['minimize']
-        return optimizer_func, initial_code
+        return optimizer_func, filtered_code
 
     def validate_optimizer_code(self, optimizer_func: Callable, raw_code: str, original_prompt: str, max_iterations: int = 5) -> Tuple[bool, Optional[Callable], str, str]:
         """Validate the optimizer function through multiple iterations of debugging."""
@@ -267,29 +292,24 @@ Please fix the error and return the corrected Python function. Ensure it follows
 
     def benchmark_new_optimizer(self, optimizer_func: Callable, optimizer_name: str) -> Optional[Dict]:
         """Benchmark the new optimizer and return performance metrics."""
-        try:
-            # Generate test functions
-            tune_functions = generate_test_functions(n_samples=self.n_tune_functions, n_dims=self.n_dims)
-            test_functions = generate_test_functions(n_samples=self.n_test_functions, n_dims=self.n_dims)
-            
-            # Run benchmark with the function
-            log_rel_error, time_elapsed, best_params = benchmark_optimizer(
-                optimizer=optimizer_func,
-                test_functions=test_functions,
-                tune_functions=tune_functions,
-                n_tuning_trials=self.n_tuning_trials
-            )
-            
-            return {
-                'name': optimizer_name,
-                'log_rel_error': log_rel_error,
-                'time_elapsed': time_elapsed,
-                'best_params': best_params
-            }
-                
-        except Exception as e:
-            print(f"Benchmarking failed: {str(e)}")
-            return None
+        # Generate test functions
+        tune_functions = generate_test_functions(n_samples=self.n_tune_functions, n_dims=self.n_dims)
+        test_functions = generate_test_functions(n_samples=self.n_test_functions, n_dims=self.n_dims)
+
+        # Run benchmark with the function
+        log_rel_error, time_elapsed, best_params = benchmark_optimizer(
+            optimizer=optimizer_func,
+            test_functions=test_functions,
+            tune_functions=tune_functions,
+            n_tuning_trials=self.n_tuning_trials
+        )
+
+        return {
+            'name': optimizer_name,
+            'log_rel_error': log_rel_error,
+            'time_elapsed': time_elapsed,
+            'best_params': best_params
+        }
 
     def load_existing_performance(self) -> List[Dict]:
         """Load existing performance data from CSV."""
