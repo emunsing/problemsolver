@@ -34,8 +34,7 @@ Function signatures:
   - Hyperparameters will be noted with a type Annotated which includes an `Interval`, e.g.  `learning_rate: Annotated[float, Interval(1e-5, 1e-1, log=True)]` or `n_layers: Annotated[int, Interval(1, 5)]`
   - Non-tunable function parameters should not have an Annotated type, e.g. `max_iterations: int = 1000`
 
-
-
+  
 Optimizer builder:
 - Have both a train set of problems, and a holdout set of problems
 - Give the "Experimenter" process a budget of *n* experiments for each functional idea.  This should help prevent overfitting.

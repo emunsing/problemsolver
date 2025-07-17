@@ -10,13 +10,13 @@ __all__ = []
 from problemsolver.optimizers.bioinspired import __all__ as bioinspired_all
 __all__.extend(bioinspired_all)
 
-# Add numeric optimizers  
-from problemsolver.optimizers.numeric import __all__ as numeric_all
-__all__.extend(numeric_all)
-
-# Add SGD optimizers
-from problemsolver.optimizers.sgd import __all__ as sgd_all
-__all__.extend(sgd_all)
+# # Add numeric optimizers
+# from problemsolver.optimizers.numeric import __all__ as numeric_all
+# __all__.extend(numeric_all)
+#
+# # Add SGD optimizers
+# from problemsolver.optimizers.sgd import __all__ as sgd_all
+# __all__.extend(sgd_all)
 
 # Create a mapping of optimizer names to functions
 OPTIMIZERS = {}

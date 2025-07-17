@@ -7,7 +7,11 @@ import time
 import numpy as np
 import click
 import matplotlib.pyplot as plt
+import csv
+import os
 from problemsolver.optimizers import OPTIMIZERS  # Import the mapping
+
+MAX_ALLOWED_PROBLEM_TIME = 1.0  # Maximum allowed time for a single problem in seconds
 
 def generate_test_functions(n_samples, n_dims, function_names = None) -> list[tuple[Callable, np.ndarray]]:
     # Generate a list of [function, optimum] pairs
@@ -32,6 +36,7 @@ N_DIMS_TEST = 2
 TUNE_FUNCTIONS = generate_test_functions(n_samples=2, n_dims=N_DIMS_TUNE)
 TEST_FUNCTIONS = generate_test_functions(n_samples=2, n_dims=N_DIMS_TEST)
 
+DEFAULT_SAVE_PATH = "src/problemsolver/data/output/optimizer_performance.csv"
 
 def multivariate_model_runner(minimizer: Callable, func_optima_tuples: list[tuple[Callable, np.ndarray]], **kwargs) -> tuple[float, float]:
     """
@@ -51,6 +56,7 @@ def multivariate_model_runner(minimizer: Callable, func_optima_tuples: list[tupl
     time_start = time.time()
 
     for test_func, optimum in func_optima_tuples:
+        problem_start_time = time.time()
         denominator = np.abs(test_func(optimum))
         assert denominator > 1e-3, "Optimal value should not be near-zero"
         x_hat = minimizer(fun=test_func, initial_guess=np.zeros(len(optimum)), **kwargs)
@@ -60,16 +66,20 @@ def multivariate_model_runner(minimizer: Callable, func_optima_tuples: list[tupl
             log_rel_errors.append(-12)  # Avoid log-zero issues when very small numbers
         else:
             log_rel_errors.append(np.log10(rel_error))
+        problem_elapsed_time = time.time() - problem_start_time
+        if problem_elapsed_time > MAX_ALLOWED_PROBLEM_TIME:
+            raise TimeoutError(f"Problem took too long: {problem_elapsed_time:.2f}s")
 
     time_elapsed = time.time() - time_start
-    print(f"Trial with params {kwargs} took {time_elapsed:.2f}s, mean log rel errors: {np.mean(log_rel_errors):.3f}")
+    mean_time = time_elapsed / len(func_optima_tuples)
+    print(f"Trial with params {kwargs} took total {time_elapsed:.2f}s, mean time {mean_time:.3f}s, mean log rel errors: {np.mean(log_rel_errors):.3f}")
 
-    return np.mean(log_rel_errors), time_elapsed
+    return np.mean(log_rel_errors), mean_time
 
 
 def univariate_model_runner(**kwargs):
-    log_rel_error, time_elapsed = multivariate_model_runner(**kwargs)
-    total_loss = np.mean(log_rel_error) + time_elapsed
+    log_rel_error, mean_time_elapsed = multivariate_model_runner(**kwargs)
+    total_loss = np.mean(log_rel_error) + 100 * mean_time_elapsed
     return total_loss
 
 
@@ -141,8 +151,26 @@ def test_minimizer(minimizer_to_test: Callable, n_tuning_trials: int = 50):
     print(f"Test results: mean log rel errors = time elapsed = {time_elapsed:.2f}s, mean log rel errors {log_rel_errors:.3f}")
 
 
+def benchmark_optimizer(optimizer: Callable, test_functions, tune_functions, n_tuning_trials: int = 50):
+    # Tune the optimizer
+    objective = make_optuna_objective(optimizer, func_optima_tuples=tune_functions)
+    study = optuna.create_study(direction="minimize")
+    study.optimize(objective, n_trials=n_tuning_trials)
+    best_params = study.best_params
+    
+    # Test with tuned parameters
+    log_rel_error, time_elapsed = multivariate_model_runner(
+        minimizer=optimizer,
+        func_optima_tuples=test_functions,
+        **best_params
+    )
+    return log_rel_error, time_elapsed, best_params
+
+
+
 def benchmark_all_optimizers(n_tune_functions: int = 2, n_test_functions: int = 2, 
-                           n_tuning_trials: int = 10, n_dims: int = 2, save_path: str | None = None,
+                           n_tuning_trials: int = 10, n_dims: int = 2, save_fig: str | None = None,
+                           save_csv: str | None = None,
                            optimizer_names: list[str] | None = None,
                              seed: int | None = None):
     """
@@ -191,18 +219,7 @@ def benchmark_all_optimizers(n_tune_functions: int = 2, n_test_functions: int = 
         print(f"[{i+1}/{len(optimizer_names)}] Testing {name}...")
         
         try:
-            # Tune the optimizer
-            objective = make_optuna_objective(optimizer, func_optima_tuples=tune_functions)
-            study = optuna.create_study(direction="minimize")
-            study.optimize(objective, n_trials=n_tuning_trials)
-            best_params = study.best_params
-            
-            # Test with tuned parameters
-            log_rel_error, time_elapsed = multivariate_model_runner(
-                minimizer=optimizer,
-                func_optima_tuples=test_functions,
-                **best_params
-            )
+            log_rel_error, time_elapsed, best_params = benchmark_optimizer(optimizer, test_functions, tune_functions, n_tuning_trials)
             
             results.append({
                 'name': name,
@@ -217,9 +234,10 @@ def benchmark_all_optimizers(n_tune_functions: int = 2, n_test_functions: int = 
             print(f"  ✗ {name}: Failed - {str(e)}")
             continue
     
-    # Create scatter plot
+    # Create scatter plot and save results
     if results:
-        create_benchmark_plot(results, save_path=save_path)
+        create_benchmark_plot(results, save_fig=save_fig)
+        save_benchmark_results_to_csv(results, save_csv=save_csv)
         
         # Print summary
         print("BENCHMARK SUMMARY")
@@ -229,7 +247,30 @@ def benchmark_all_optimizers(n_tune_functions: int = 2, n_test_functions: int = 
     return results
 
 
-def create_benchmark_plot(results, save_path: str | None = None):
+def save_benchmark_results_to_csv(results, save_csv: str | None = None):
+    """Save benchmark results to CSV file."""
+    if save_csv is None:
+        save_csv = DEFAULT_SAVE_PATH
+    # Ensure the directory exists
+    os.makedirs(os.path.dirname(save_csv), exist_ok=True)
+    
+    # Write results to CSV
+    with open(save_csv, 'w', newline='') as csvfile:
+        fieldnames = ['method_name', 'log_rel_error', 'time_elapsed']
+        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+        
+        writer.writeheader()
+        for result in results:
+            writer.writerow({
+                'method_name': result['name'],
+                'log_rel_error': result['log_rel_error'],
+                'time_elapsed': result['time_elapsed']
+            })
+    
+    print(f"Results saved to '{save_csv}'")
+
+
+def create_benchmark_plot(results, save_fig: str | None = None):
     """Create a scatter plot of optimizer performance."""
     names = [r['name'] for r in results]
     log_errors = [r['log_rel_error'] for r in results]
@@ -267,9 +308,9 @@ def create_benchmark_plot(results, save_path: str | None = None):
         plt.legend()
     
     plt.tight_layout()
-    if save_path is not None:
-        plt.savefig(save_path, dpi=300, bbox_inches='tight')
-        print(f"Plot saved as '{save_path}'")
+    if save_fig is not None:
+        plt.savefig(save_fig, dpi=300, bbox_inches='tight')
+        print(f"Plot saved as '{save_fig}'")
     plt.show()
 
 
@@ -321,12 +362,13 @@ def list_optimizers():
 @click.option('--n-tune-functions', default=3, help='Number of functions to use for tuning')
 @click.option('--n-test-functions', default=3, help='Number of functions to use for testing')
 @click.option('--n-tuning-trials', default=20, help='Number of trials for hyperparameter tuning')
-@click.option('--save-path', default=None, help='Path to save the plot')
+@click.option('--save-fig', default=None, help='Path to save the plot')
+@click.option('--save-csv', default=None, help='Path to save the CSV file')
 @click.option('--n-dims', default=2, help='Number of dimensions for the test functions')
 @click.option('--seed', default=None, type=int, help='Random seed for reproducibility')
 @click.option('--optimizers', multiple=True, type=click.Choice(list(OPTIMIZERS.keys())), 
               help='Specific optimizers to test (can specify multiple times). If not specified, test all optimizers.')
-def benchmark(n_tune_functions, n_test_functions, n_tuning_trials, save_path, n_dims, seed, optimizers):
+def benchmark(n_tune_functions, n_test_functions, n_tuning_trials, save_fig, save_csv, n_dims, seed, optimizers):
     """Benchmark optimizers and create a scatter plot."""
     # Convert tuple to list, or None if empty
     optimizer_list = list(optimizers) if optimizers else None
@@ -335,7 +377,8 @@ def benchmark(n_tune_functions, n_test_functions, n_tuning_trials, save_path, n_
                              n_test_functions=n_test_functions,
                              n_tuning_trials=n_tuning_trials,
                              n_dims=n_dims,
-                             save_path=save_path,
+                             save_fig=save_fig,
+                             save_csv=save_csv,
                              seed=seed,
                              optimizer_names=optimizer_list)
 

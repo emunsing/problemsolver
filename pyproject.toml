@@ -13,8 +13,10 @@ matplotlib = {version = "*", extras = []}
 pandas = {version = "*", extras = ["performance"]}
 click = "*"
 openai = "*"
-langchain = "*"
+langchain = {version = "*", extras = ["openai"]}
+langchain-openai = "*"
 optuna = "*"
+
 
 [build-system]
 requires = ["poetry-core"]
