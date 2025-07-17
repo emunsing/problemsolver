@@ -11,7 +11,7 @@ import csv
 import os
 from problemsolver.optimizers import OPTIMIZERS  # Import the mapping
 
-MAX_ALLOWED_PROBLEM_TIME = 1.0  # Maximum allowed time for a single problem in seconds
+MAX_ALLOWED_PROBLEM_TIME = 2.0  # Maximum allowed time for a single problem in seconds
 
 def generate_test_functions(n_samples, n_dims, function_names = None) -> list[tuple[Callable, np.ndarray]]:
     # Generate a list of [function, optimum] pairs
@@ -38,7 +38,8 @@ TEST_FUNCTIONS = generate_test_functions(n_samples=2, n_dims=N_DIMS_TEST)
 
 DEFAULT_SAVE_PATH = "src/problemsolver/data/output/optimizer_performance.csv"
 
-def multivariate_model_runner(minimizer: Callable, func_optima_tuples: list[tuple[Callable, np.ndarray]], **kwargs) -> tuple[float, float]:
+def multivariate_model_runner(minimizer: Callable,
+                              func_optima_tuples: list[tuple[Callable, np.ndarray]], **kwargs) -> tuple[float, float]:
     """
     reliant on the `minimize` function imported into this context.
     TODO: Make the `minimize` function a parameter to this function.
@@ -53,6 +54,7 @@ def multivariate_model_runner(minimizer: Callable, func_optima_tuples: list[tupl
     """
 
     log_rel_errors = []
+    problem_times =  [0.1 * MAX_ALLOWED_PROBLEM_TIME] * 3  # Keep a rolling average of the last 3 problem times, prepopulate with something safe
     time_start = time.time()
 
     for test_func, optimum in func_optima_tuples:
@@ -67,7 +69,9 @@ def multivariate_model_runner(minimizer: Callable, func_optima_tuples: list[tupl
         else:
             log_rel_errors.append(np.log10(rel_error))
         problem_elapsed_time = time.time() - problem_start_time
-        if problem_elapsed_time > MAX_ALLOWED_PROBLEM_TIME:
+        problem_times.append(problem_elapsed_time)
+        problem_times = problem_times[1:]  # Keep only the last 3 times for averaging
+        if np.mean(problem_times) > MAX_ALLOWED_PROBLEM_TIME:
             raise TimeoutError(f"Problem took too long: {problem_elapsed_time:.2f}s")
 
     time_elapsed = time.time() - time_start

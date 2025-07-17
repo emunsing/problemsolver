@@ -44,8 +44,10 @@ def check_optimizer_function(optimizer: Callable):
 class Interval:
     """
     Optuna metadata class for use with parameter annotations using typing.Annotated
+    Low and high are required, and must be numeric.
+    Step is optional, and should be None if log=True.
     """
-    def __init__(self, low, high, step=None, log=False):
+    def __init__(self, low: int | float, high: int | float, step: int | float | None=None, log: bool=False):
         self.low = low
         self.high = high
         self.step = step
