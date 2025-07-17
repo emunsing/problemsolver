@@ -154,7 +154,7 @@ Create a complete, runnable Python function that implements your novel algorithm
     @staticmethod
     def get_debug_prompt(original_prompt: str, code: str, error: str) -> str:
         """Generate a prompt for debugging the code."""
-        return f"""The previous code had an error. Please fix it and return the corrected version.
+        return f"""The previous code did not successfully generate a valid optimizer. Please fix it and return the corrected version.
 
 ORIGINAL PROMPT:
 {original_prompt}
@@ -339,6 +339,80 @@ Please fix the error and return the corrected Python function. Ensure it follows
         return False
 
     @staticmethod
+    def analyze_pareto_gaps(new_result: Dict, existing_frontier: List[Dict]) -> Dict:
+        """Analyze how close the new result is to breaking through the Pareto frontier.
+        
+        Instead of measuring gaps to the best points in each dimension, we identify
+        which dimension is closest to allowing the point to advance the frontier.
+        """
+        if not existing_frontier:
+            return {
+                'closest_breakthrough_distance': 0.0,
+                'error_breakthrough_gap': 0.0,
+                'time_breakthrough_gap': 0.0,
+                'best_error': float('inf'),
+                'best_time': float('inf'),
+                'needs_error_improvement': False,
+                'needs_time_improvement': False,
+                'closest_breakthrough_dimension': 'none'
+            }
+        
+        # Find the best values in each dimension for reference
+        best_error = min(point['log_rel_error'] for point in existing_frontier)
+        best_time = min(point['time_elapsed'] for point in existing_frontier)
+        
+        # For each frontier point, calculate how much improvement is needed in each dimension
+        # to dominate that point
+        error_improvements_needed = []
+        time_improvements_needed = []
+        
+        for frontier_point in existing_frontier:
+            # To dominate this frontier point, we need to be at least as good in both dimensions
+            # and strictly better in at least one
+            
+            # Calculate how much we need to improve in each dimension to dominate this point
+            error_improvement = max(0, new_result['log_rel_error'] - frontier_point['log_rel_error'])
+            time_improvement = max(0, new_result['time_elapsed'] - frontier_point['time_elapsed'])
+            
+            # If we're already better in one dimension, we only need to improve the other
+            if new_result['log_rel_error'] < frontier_point['log_rel_error']:
+                # We're already better in error, so we only need to improve time
+                time_improvements_needed.append(time_improvement)
+            elif new_result['time_elapsed'] < frontier_point['time_elapsed']:
+                # We're already better in time, so we only need to improve error
+                error_improvements_needed.append(error_improvement)
+            else:
+                # We need to improve in at least one dimension to dominate
+                error_improvements_needed.append(error_improvement)
+                time_improvements_needed.append(time_improvement)
+        
+        # Find the minimum improvement needed in each dimension to break through
+        min_error_improvement = min(error_improvements_needed) if error_improvements_needed else float('inf')
+        min_time_improvement = min(time_improvements_needed) if time_improvements_needed else float('inf')
+        
+        # Determine which dimension is closest to breakthrough
+        if min_error_improvement < min_time_improvement:
+            closest_dimension = 'error'
+            closest_breakthrough_distance = min_error_improvement
+        elif min_time_improvement < min_error_improvement:
+            closest_dimension = 'time'
+            closest_breakthrough_distance = min_time_improvement
+        else:
+            closest_dimension = 'tie'
+            closest_breakthrough_distance = min_error_improvement
+        
+        return {
+            'closest_breakthrough_distance': closest_breakthrough_distance,
+            'error_breakthrough_gap': min_error_improvement,
+            'time_breakthrough_gap': min_time_improvement,
+            'best_error': best_error,
+            'best_time': best_time,
+            'needs_error_improvement': min_error_improvement > 0,
+            'needs_time_improvement': min_time_improvement > 0,
+            'closest_breakthrough_dimension': closest_dimension
+        }
+
+    @staticmethod
     def get_pareto_frontier(results: List[Dict]) -> List[Dict]:
         """Compute the Pareto frontier from a list of performance results.
         
@@ -371,6 +445,101 @@ Please fix the error and return the corrected Python function. Ensure it follows
                 frontier.append(candidate)
         
         return frontier
+
+    @staticmethod
+    def get_improvement_prompt(original_prompt: str, previous_code: str, failure_analysis: Dict) -> str:
+        """Generate a prompt for improving the optimizer based on failure analysis."""
+        error_breakthrough_gap = failure_analysis.get('error_breakthrough_gap', 0)
+        time_breakthrough_gap = failure_analysis.get('time_breakthrough_gap', 0)
+        closest_breakthrough_dimension = failure_analysis.get('closest_breakthrough_dimension', 'none')
+        closest_breakthrough_distance = failure_analysis.get('closest_breakthrough_distance', float('inf'))
+        best_error = failure_analysis.get('best_error', float('inf'))
+        best_time = failure_analysis.get('best_time', float('inf'))
+        failure_mode = failure_analysis.get('failure_mode', 'no_pareto_improvement')
+        
+        if failure_mode == 'timeout':
+            feedback = f"""The previous optimizer was too slow and timed out during benchmarking. 
+This suggests the algorithm is computationally expensive or has convergence issues.
+
+IMPROVEMENT FOCUS:
+- Optimize for speed and efficiency
+- Reduce computational complexity
+- Consider early termination conditions
+- Simplify the algorithm while maintaining effectiveness"""
+        
+        elif failure_mode == 'no_pareto_improvement':
+            if closest_breakthrough_dimension == 'error':
+                feedback = f"""The previous optimizer is closest to breaking through the Pareto frontier by improving accuracy:
+- Error breakthrough gap: {error_breakthrough_gap:.3f} (need to improve by this amount)
+- Time breakthrough gap: {time_breakthrough_gap:.3f}s
+- Closest breakthrough distance: {closest_breakthrough_distance:.3f}
+
+IMPROVEMENT FOCUS:
+- Prioritize accuracy improvements - you're very close to a major breakthrough!
+- Focus on better convergence criteria or more sophisticated optimization strategies
+- Maintain current speed while improving error reduction
+- Consider adaptive parameters that improve final accuracy"""
+            
+            elif closest_breakthrough_dimension == 'time':
+                feedback = f"""The previous optimizer is closest to breaking through the Pareto frontier by improving speed:
+- Time breakthrough gap: {time_breakthrough_gap:.3f}s (need to improve by this amount)
+- Log-Relative error breakthrough gap: {error_breakthrough_gap:.3f}
+- Closest breakthrough distance: {closest_breakthrough_distance:.3f}
+
+IMPROVEMENT FOCUS:
+- Prioritize speed improvements - you're very close to a major breakthrough!
+- Look for computational optimizations and early stopping
+- Consider adaptive parameters that reduce computation time
+- Maintain current accuracy while improving efficiency"""
+            
+            elif closest_breakthrough_dimension == 'tie':
+                feedback = f"""The previous optimizer is equally close to breaking through in both dimensions:
+- Log-Relative error breakthrough gap: {error_breakthrough_gap:.3f}
+- Time breakthrough gap: {time_breakthrough_gap:.3f}s
+- Closest breakthrough distance: {closest_breakthrough_distance:.3f}
+
+IMPROVEMENT FOCUS:
+- Choose one dimension to focus on (either accuracy or speed)
+- Consider which improvement would be easier to achieve
+- Look for algorithmic changes that improve both dimensions simultaneously
+- Focus on the dimension where you have the most room for improvement"""
+            
+            else:
+                feedback = f"""The previous optimizer needs significant improvements in both dimensions:
+- Log-Relative Error breakthrough gap: {error_breakthrough_gap:.3f}
+- Time breakthrough gap: {time_breakthrough_gap:.3f}s
+
+IMPROVEMENT FOCUS:
+- Need fundamental algorithmic improvements
+- Consider a different approach inspired by the emergent behavior
+- Focus on both accuracy and efficiency simultaneously
+- Look for novel optimization strategies"""
+        
+        else:
+            feedback = f"""The previous optimizer failed with error: {failure_mode}
+
+IMPROVEMENT FOCUS:
+- Fix the specific error
+- Ensure robust implementation
+- Add proper error handling"""
+
+        return f"""The previous optimizer did not meet the requirements. Please improve it based on this feedback:
+
+ORIGINAL PROMPT:
+{original_prompt}
+
+PREVIOUS CODE:
+```python
+{previous_code}
+```
+
+FAILURE ANALYSIS:
+{failure_analysis}
+
+FEEDBACK:
+{feedback}
+
+Please create an improved version that addresses these specific issues. Focus on the improvement areas identified above."""
 
     @staticmethod
     def save_optimizer_code(dir: os.PathLike, raw_code: str, performance: Dict) -> None:
@@ -407,13 +576,40 @@ Please fix the error and return the corrected Python function. Ensure it follows
         existing_frontier = self.get_pareto_frontier(all_existing_performance)
         print(f"Testing against Pareto frontier with {len(existing_frontier)} points")
 
+        # Store the original generation prompt for reference
+        original_prompt = self.get_generation_prompt(inspiration)
+        previous_code = ""
+        failure_analysis: Dict = {}
+
         for attempt in range(max_attempts):
             print(f"\n=== Attempt {attempt + 1}/{max_attempts} at pareto improvement ===")
             
-            # Generate optimizer
-            success, optimizer_func, raw_code, error = self.generate_optimizer(inspiration)
-            if not success or optimizer_func is None:
+            # Generate optimizer with feedback from previous attempts
+            if attempt == 0:
+                generation_prompt = original_prompt
+            else:
+                generation_prompt = self.get_improvement_prompt(original_prompt, previous_code, failure_analysis)
+
+            messages = [
+                SystemMessage(content=self.get_system_prompt()),
+                HumanMessage(content=generation_prompt)
+            ]
+
+            response = self.llm.invoke(messages)
+            optimizer_func, raw_code = self.extract_func_and_code_from_response(response.content)
+            
+            # Validate the optimizer
+            success, final_func, final_code, error = self.validate_optimizer_code(optimizer_func,
+                                                                  raw_code=raw_code,
+                                                                  original_prompt=generation_prompt)
+            
+            if not success or final_func is None:
                 print(f"Generation failed: {error}")
+                failure_analysis = {
+                    'failure_mode': 'validation_error',
+                    'error': error
+                }
+                previous_code = final_code
                 continue
             
             # Create a unique name for the optimizer
@@ -421,12 +617,30 @@ Please fix the error and return the corrected Python function. Ensure it follows
             
             # Benchmark the optimizer
             try:
-                performance = self.benchmark_new_optimizer(optimizer_func, optimizer_name)
+                performance = self.benchmark_new_optimizer(final_func, optimizer_name)
                 if not performance:
                     print("Benchmarking failed")
+                    failure_analysis = {
+                        'failure_mode': 'benchmark_failure',
+                        'error': 'Benchmarking returned no results'
+                    }
+                    previous_code = final_code
                     continue
             except TimeoutError as e:
                 print(f"Benchmarking timed out; skipping this optimizer: {str(e)}")
+                failure_analysis = {
+                    'failure_mode': 'timeout',
+                    'error': str(e)
+                }
+                previous_code = final_code
+                continue
+            except Exception as e:
+                print(f"Benchmarking failed with exception: {str(e)}")
+                failure_analysis = {
+                    'failure_mode': 'benchmark_exception',
+                    'error': str(e)
+                }
+                previous_code = final_code
                 continue
             
             print(f"Performance: log_rel_error={performance['log_rel_error']:.3f}, time={performance['time_elapsed']:.2f}s")
@@ -435,12 +649,21 @@ Please fix the error and return the corrected Python function. Ensure it follows
             # Check if it advances the Pareto frontier
             if self.is_pareto_improvement(performance, existing_frontier):
                 print("✓ Pareto frontier advancement detected!")
-                self.save_optimizer_code(self.code_output_dir_performant, raw_code, performance)
+                self.save_optimizer_code(self.code_output_dir_performant, final_code, performance)
                 self.save_optimizer_performance(self.performance_file, performance)
                 return True
             else:
-                self.save_optimizer_code(self.code_output_dir_all, raw_code, performance)
+                self.save_optimizer_code(self.code_output_dir_all, final_code, performance)
                 print("✗ No Pareto frontier advancement")
+                
+                # Analyze gaps for next iteration
+                gap_analysis = self.analyze_pareto_gaps(performance, existing_frontier)
+                failure_analysis = {
+                    'failure_mode': 'no_pareto_improvement',
+                    'performance': performance,
+                    **gap_analysis
+                }
+                previous_code = final_code
         
         print(f"Failed to generate Pareto-improving optimizer after {max_attempts} attempts")
         return False
