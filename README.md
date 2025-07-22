@@ -95,6 +95,6 @@ Combinatoric search algorithms:
 - Keane's bump function
 
 Next steps:
-- [ ] Parameterize output directory; ensure that CSV is populated
+- [x] Parameterize output directory; ensure that CSV is populated
 - [ ] Test with gpt-4.1-mini
-- [ ] Mash-up of two different ideas: Ideally requires either the docstring in the 
+- [x] Mash-up of two different ideas: Ideally requires either the docstring in the 

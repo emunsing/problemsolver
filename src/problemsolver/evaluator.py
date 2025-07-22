@@ -127,30 +127,31 @@ def make_optuna_objective(minimizer_to_test: Callable,
     return optuna_loss
 
 
-def tune_minimizer(minimizer_to_test: Callable, n_trials: int = 50):
+def tune_minimizer(minimizer_to_test: Callable, tune_functions, n_trials: int = 50):
     """
     Tune the minimizer using Optuna.
 
     :param minimizer_to_test: The minimizer function to tune.
+    :param tune_functions: List of (function, optimum) pairs for tuning.
     :param n_trials: Number of trials for tuning.
     :return: The best parameters found by Optuna.
     """
-    objective = make_optuna_objective(minimizer_to_test, func_optima_tuples=TUNE_FUNCTIONS)
+    objective = make_optuna_objective(minimizer_to_test, func_optima_tuples=tune_functions)
     study = optuna.create_study(direction="minimize")
     study.optimize(objective, n_trials=n_trials)
     return study.best_params
 
 
-def test_minimizer(minimizer_to_test: Callable, n_tuning_trials: int = 50):
+def test_minimizer(minimizer_to_test: Callable, tune_functions, test_functions, n_tuning_trials: int = 50):
     """
     Test the minimizer with a set of test functions.
 
     :return: None
     """
-    best_params = tune_minimizer(minimizer_to_test=minimizer_to_test, n_trials=n_tuning_trials)
+    best_params = tune_minimizer(minimizer_to_test=minimizer_to_test, tune_functions=tune_functions, n_trials=n_tuning_trials)
     print("Best parameters found:", best_params)
     log_rel_errors, time_elapsed = multivariate_model_runner(minimizer=minimizer_to_test,
-                                                             func_optima_tuples=TEST_FUNCTIONS,
+                                                             func_optima_tuples=test_functions,
                                                              **best_params)
     print(f"Test results: mean log rel errors = time elapsed = {time_elapsed:.2f}s, mean log rel errors {log_rel_errors:.3f}")
 
@@ -328,10 +329,13 @@ def cli():
 @click.option('--n-trials', default=50, help='Number of trials for hyperparameter tuning')
 @click.option('--optimizer', type=click.Choice(list(OPTIMIZERS.keys())), 
               default='minimize_pso', help='Which optimizer to tune')
-def tune(n_trials, optimizer):
+@click.option('--n-dims', default=2, help='Number of dimensions for the test functions')              
+@click.option('--n-tune-functions', default=2, help='Number of functions to use for tuning')
+def tune(n_trials, optimizer, n_tune_functions, n_dims):
     """Tune hyperparameters for a specific optimizer."""
     minimizer_func = OPTIMIZERS[optimizer]
-    best_params = tune_minimizer(minimizer_to_test=minimizer_func, n_trials=n_trials)
+    tune_functions = generate_test_functions(n_samples=n_tune_functions, n_dims=n_dims)
+    best_params = tune_minimizer(minimizer_to_test=minimizer_func, tune_functions=tune_functions, n_trials=n_trials)
     
     click.echo(f"Best parameters found for {optimizer}:")
     for param, value in best_params.items():
@@ -342,12 +346,17 @@ def tune(n_trials, optimizer):
 @cli.command()
 @click.option('--optimizer', type=click.Choice(list(OPTIMIZERS.keys())), 
               default='minimize_pso', help='Which optimizer to test')
+@click.option('--n-dims', default=2, help='Number of dimensions for the test functions')                      
 @click.option('--n-tuning-trials', default=50, help='Number of trials for hyperparameter tuning')
-def test(optimizer, n_tuning_trials):
+@click.option('--n-tune-functions', default=2, help='Number of functions to use for tuning')
+@click.option('--n-test-functions', default=2, help='Number of functions to use for testing')
+def test(optimizer, n_tuning_trials, n_tune_functions, n_test_functions, n_dims):
     """Test a specific optimizer with tuned parameters."""
     minimizer_func = OPTIMIZERS[optimizer]
+    tune_functions = generate_test_functions(n_samples=n_tune_functions, n_dims=n_dims)
+    test_functions = generate_test_functions(n_samples=n_test_functions, n_dims=n_dims)
     click.echo(f"Testing {optimizer}...")
-    test_minimizer(minimizer_to_test=minimizer_func, n_tuning_trials=n_tuning_trials)
+    test_minimizer(minimizer_to_test=minimizer_func, tune_functions=tune_functions, test_functions=test_functions, n_tuning_trials=n_tuning_trials)
 
 
 @cli.command()
