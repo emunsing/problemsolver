@@ -88,7 +88,7 @@ You must create a complete, runnable Python function that can be executed immedi
 
     def get_generation_prompt(self, inspiration: str) -> str:
         """Generate the prompt for creating a new optimizer."""
-        return f"""Create a novel optimization algorithm inspired by this emergent behavior:
+        return f"""Create a novel nonconvex optimization algorithm inspired by this emergent behavior:
 
 # INSPIRATION: {inspiration}
 
@@ -674,6 +674,61 @@ Please create an improved version that addresses these specific issues. Focus on
         return False
 
 
+class BlendedOptimizerGenerator(OptimizerGenerator):
+    def __init__(self, *args, n_blend_examples: int = 3, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.n_blend_examples = n_blend_examples
+        assert len(self.code_output_dir_performant.glob('*.py')) > 0, "No performant optimizers found in {self.code_output_dir_performant}"
+
+    def get_generation_prompt(self, inspiration: str) -> str:
+        """
+        Generate a prompt for creating a new optimizer, blending inspiration from both the given emergent behavior and n existing performant optimizer code examples.
+        """
+        # Find up to n_blend_examples .py files in self.code_output_dir_performant
+        code_files = list(self.code_output_dir_performant.glob('*.py'))
+        if len(code_files) <= self.n_blend_examples:
+            selected_files = code_files
+        else:
+            selected_files = random.sample(code_files, self.n_blend_examples)
+
+        # Build the code examples section
+        if selected_files:
+            code_examples_section = "\n".join([
+                f"# EXISTING OPTIMIZER EXAMPLE: {fname}\n" +
+                f"""```python\n{code}\n```\n\n""" for fname, code in [(f.name, code) for f, code in zip(selected_files, [open(f, 'r').read() for f in selected_files])]
+            ])
+        else:
+            code_examples_section = ""
+
+        # Prompt for blending inspirations
+        prompt = f"""
+Create a novel nonconvex optimization algorithm inspired by combining ideas from two different types of inspiration:
+- CONCEPTUAL INSPIRATION: {inspiration}
+- CODE INSPIRATION: Each of the below code examples is a modern nonconvex optimization algorithm inspired by a different emergent system, and can be used for inspiration.
+
+{code_examples_section}
+
+For each code example, consider:
+- What emergent system or principle does it represent?
+- What are the key algorithmic dynamics and strengths?
+- What are the limitations or areas for improvement?
+- What key insights from your CONCEPTUAL INSPIRATION can be blended with methodological techniques from the code to create a novel optimizer inspired by a new form of emergent behavior?
+
+There are an infinite number of ways that emergent behavior can solve complex tasks.  Your task is to critically analyze the emergent principles and algorithmic mechanisms in both the CONCEPTUAL INSPIRATION and the CODE INSPIRATION, and synthesize a single, conceptually coherent nonconvex optimizer that combines the best ideas, novel contributions, and shortcuts or synergies of all the inspiration you've been given.
+
+{self.get_requirements_prompt()}
+
+CRITICAL THINKING:
+- For each source of inspiration, what key dynamics create emergent behavior which maximizes net benefit or minimizes net energy?
+- How can the new inspiration and these existing approaches be blended or improved upon?
+- What novel ideas or shortcuts can be introduced by combining these inspirations?
+- How can the resulting algorithm be made efficient, robust, and effective for challenging optimization problems?
+
+Create a complete, runnable Python function that implements your blended, novel algorithm.
+"""
+        return prompt
+
+
 @click.command()
 @click.option('--api-key', required=True, help='OpenAI API key')
 @click.option('--model', default='o4-mini', help='OpenAI model to use')
@@ -778,6 +833,47 @@ def sweep(api_key: str, model: str, start_index: int , n_pareto_attempts: int, n
         n_dims=n_dims,
         output_dir=output_dir,
         pareto_rtol=pareto_rtol
+    )
+    ideas = generator.load_emergent_ideas(ideas_file)
+    if not ideas:
+        print("No emergent ideas found!")
+        return False
+    for inspiration in ideas[start_index:]:
+        print(f"\n=== Sweeping with inspiration: {inspiration} ===")
+        success = generator.run_generation_cycle(inspiration=inspiration, max_attempts=n_pareto_attempts)
+
+        if success:
+            print("\n🎉 Successfully generated a Pareto-improving optimizer!")
+        else:
+            print("\n😞 Failed to generate a Pareto-improving optimizer")
+
+
+@cli.command()
+@click.option('--api-key', required=True, help='OpenAI API key')
+@click.option('--model', default='o4-mini', help='OpenAI model to use')
+@click.option('--start-index', default=0, type=int, help='Index to start sweeping from')
+@click.option('--n-pareto-attempts', default=5, type=int, help='Number of attempts at pareto improvement')
+@click.option('--n-tune-functions', default=10, type=int, help='Number of functions for tuning')
+@click.option('--n-test-functions', default=20, type=int, help='Number of functions for testing')
+@click.option('--n-tuning-trials', default=100, type=int, help='Number of tuning trials')
+@click.option('--pareto-rtol', default=0.0, type=float, help='Relative tolerance for Pareto frontier')
+@click.option('--n-dims', default=5, type=int, help='Number of dimensions for test functions')
+@click.option('--output-dir', default="data/output", help='Output directory')
+@click.option('--ideas-file', default="data/emergent_optimization_ideas.txt", help='File containing emergent optimization ideas')
+@click.option('--n-blend-examples', default=3, type=int, help='Number of code examples to blend for inspiration')
+def blend_sweep(api_key: str, model: str, start_index: int , n_pareto_attempts: int, n_tune_functions: int,
+         n_test_functions: int, n_tuning_trials: int, n_dims: int, output_dir: str, ideas_file: str, pareto_rtol: float = 0.0, n_blend_examples: int = 3):
+    """Generate new optimizers using LLMs, sweeping through all inspirations and blending with existing performant optimizers."""
+    generator = BlendedOptimizerGenerator(
+        openai_api_key=api_key,
+        model_name=model,
+        n_tune_functions=n_tune_functions,
+        n_test_functions=n_test_functions,
+        n_tuning_trials=n_tuning_trials,
+        n_dims=n_dims,
+        output_dir=output_dir,
+        pareto_rtol=pareto_rtol,
+        n_blend_examples=n_blend_examples
     )
     ideas = generator.load_emergent_ideas(ideas_file)
     if not ideas:
