@@ -113,7 +113,7 @@ Create a complete, runnable Python function that implements your novel algorithm
   - Randomly generated functions will be used to tune the optimizer's hyperparameters with a standard hyperparameter tuner with a fixed budget.
   - The tuned optimizer will be tested on a set of test functions drawn from the same distribution.
   - Because the test functions are drawn randomly, you cannot attempt to overfit to the test metric.
-  - Problems which take more than a time limit (several seconds) will be considered failures; consider this when designing your algorithm.
+  - Problems which take more than a time limit (several seconds) will be considered failures; consider this when designing your algorithm and use vectorization and other techniques to make your algorithm efficient.
 - Consider how the emergent behavior's principles can be mathematically modeled concisely.
 - Think about what makes this behavior effective in nature and how to translate that to optimization
 - Choose implementations which are efficient and scalable, avoiding unnecessary complexity or computationally expensive operations
