@@ -132,6 +132,7 @@ REQUIREMENTS:
 4. Must return a numpy array of the same shape as initial_guess
 5. Must be pure Python with numpy (no scipy or other advanced libraries)
 6. Must include proper error handling and edge cases
+7. Include a docstring with a succinct and insightful 1-2 sentence description of the algorithm, its inspiration, and its key features.
 
 DETAILS FOR HYPERPARAMETER OPTIMIZATION:
 - Standard hyperparameters in the function signature can be defined with default values
