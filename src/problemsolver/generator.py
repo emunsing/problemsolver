@@ -36,7 +36,7 @@ def to_camel_case(text: str) -> str:
 class OptimizerGenerator:
     def __init__(self, openai_api_key: str, model_name: str = "o4-mini",
                  n_tune_functions: int = 10, n_test_functions: int = 20, 
-                 n_tuning_trials: int = 100, n_dims: int = 5):
+                 n_tuning_trials: int = 100, n_dims: int = 5, output_dir: str = "data/output"):
         """Initialize the optimizer generator."""
         self.llm = ChatOpenAI(
             openai_api_key=openai_api_key,
@@ -46,18 +46,19 @@ class OptimizerGenerator:
         self.n_test_functions = n_test_functions
         self.n_tuning_trials = n_tuning_trials
         self.n_dims = n_dims
-        
-        self.performance_file = "data/output/optimizer_performance.csv"
-        self.all_performance_file = "data/output/all_optimizer_performance.csv"
+        self.output_dir = pathlib.Path(output_dir).expanduser().resolve()
 
-        self.code_output_dir_all = pathlib.Path("data/output/code/other")
-        self.code_output_dir_performant = pathlib.Path("data/output/code/performant")
+        self.performance_file = self.output_dir / "optimizers_performant.csv"
+        self.load_performance_file(self.performance_file, empty_ok=False)  # Ensure that file exists and is well-formatted
+        self.all_performance_file = self.output_dir / "optimizers_all.csv"
+
+        self.code_output_dir_all = self.output_dir / "code" / "other"        
+        self.code_output_dir_performant =  self.output_dir / "code" / "performant"
         
         # Ensure directories exist
-        os.makedirs(os.path.dirname(self.performance_file), exist_ok=True)
-        os.makedirs(os.path.dirname(self.all_performance_file), exist_ok=True)
         os.makedirs(self.code_output_dir_all, exist_ok=True)
         os.makedirs(self.code_output_dir_performant, exist_ok=True)
+        
 
     @staticmethod
     def load_emergent_ideas(ideas_file: os.PathLike) -> List[str]:
@@ -306,13 +307,17 @@ Please fix the error and return the corrected Python function. Ensure it follows
             'best_params': best_params
         }
 
-    def load_existing_performance(self) -> List[Dict]:
+    @staticmethod
+    def load_performance_file(performance_file: os.PathLike, empty_ok: bool = False) -> List[Dict]:
         """Load existing performance data from CSV."""
-        if not os.path.exists(self.performance_file):
-            return []
+        if not os.path.exists(performance_file):
+            if empty_ok:
+                return []
+            else:
+                raise FileNotFoundError(f"Performance file {performance_file} does not exist")
         
         results = []
-        with open(self.performance_file, 'r') as csvfile:
+        with open(performance_file, 'r') as csvfile:
             reader = csv.DictReader(csvfile)
             for row in reader:
                 results.append({
@@ -567,8 +572,8 @@ Please create an improved version that addresses these specific issues. Focus on
         # Load emergent ideas
 
         # Load existing performance and compute Pareto frontier
-        all_existing_performance = self.load_existing_performance()
-        existing_frontier = self.get_pareto_frontier(all_existing_performance)
+        performant_results = self.load_performance_file(self.performance_file)
+        existing_frontier = self.get_pareto_frontier(performant_results)
         print(f"Testing against Pareto frontier with {len(existing_frontier)} points")
 
         # Store the original generation prompt for reference
@@ -749,18 +754,21 @@ def inspire(api_key: str, model: str, n_pareto_attempts: int, n_tune_functions: 
 @click.option('--n-test-functions', default=20, type=int, help='Number of functions for testing')
 @click.option('--n-tuning-trials', default=100, type=int, help='Number of tuning trials')
 @click.option('--n-dims', default=5, type=int, help='Number of dimensions for test functions')
+@click.option('--output-dir', default="data/output", help='Output directory')
+@click.option('--ideas-file', default="data/emergent_optimization_ideas.txt", help='File containing emergent optimization ideas')
 def sweep(api_key: str, model: str, start_index: int , n_pareto_attempts: int, n_tune_functions: int,
-         n_test_functions: int, n_tuning_trials: int, n_dims: int):
+         n_test_functions: int, n_tuning_trials: int, n_dims: int, output_dir: str, ideas_file: str):
     """Generate new optimizers using LLMs, sweeping through all inspirations."""
+
     generator = OptimizerGenerator(
         openai_api_key=api_key,
         model_name=model,
         n_tune_functions=n_tune_functions,
         n_test_functions=n_test_functions,
         n_tuning_trials=n_tuning_trials,
-        n_dims=n_dims
+        n_dims=n_dims,
+        output_dir=output_dir
     )
-    ideas_file = "data/emergent_optimization_ideas.txt"
     ideas = generator.load_emergent_ideas(ideas_file)
     if not ideas:
         print("No emergent ideas found!")

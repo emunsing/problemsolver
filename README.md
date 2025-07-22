@@ -94,6 +94,7 @@ Combinatoric search algorithms:
 - Styblinski–Tang function
 - Keane's bump function
 
-Main function:
-
-- 
+Next steps:
+- [ ] Parameterize output directory; ensure that CSV is populated
+- [ ] Test with gpt-4.1-mini
+- [ ] Mash-up of two different ideas: Ideally requires either the docstring in the 
