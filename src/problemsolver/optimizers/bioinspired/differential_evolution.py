@@ -14,7 +14,7 @@ def minimize(
     seed: int = None
 ) -> np.ndarray:
     """
-    Differential Evolution optimizer.
+    Differential Evolution optimizer. Evolves candidate solutions by adding weighted differences between randomly chosen solution vectors to a third vector, then selecting the better of the trial and target vectors to drive population-based search.
 
     Parameters
     ----------

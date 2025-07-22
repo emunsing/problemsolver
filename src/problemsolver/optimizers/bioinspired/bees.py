@@ -17,7 +17,7 @@ def minimize(
     seed: int = None
 ) -> np.ndarray:
     """
-    Artificial Bee Colony optimizer.
+    Artificial Bee Colony optimizer. Mimics foraging behavior of honeybees by having “scout” bees explore randomly and “employed” bees exploit known good food sources, sharing information via waggle dances to balance exploration and exploitation.
 
     Parameters
     ----------

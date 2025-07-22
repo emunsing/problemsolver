@@ -14,7 +14,7 @@ def minimize(
     seed: int = None
 ) -> np.ndarray:
     """
-    Whale Optimization Algorithm.
+    Whale Optimization Algorithm. Models humpback whales’ bubble-net feeding strategy by alternately encircling prey and spiraling outward, using mathematically controlled position updates to switch between exploitation and exploration.
 
     Parameters
     ----------

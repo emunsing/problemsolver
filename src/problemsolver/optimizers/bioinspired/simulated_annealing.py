@@ -14,7 +14,7 @@ def minimize(
     seed: int = None
 ) -> np.ndarray:
     """
-    Simulated Annealing optimizer.
+    Simulated Annealing optimizer. Emulates the physical cooling process by allowing occasional uphill moves (worse solutions) with a probability that decreases over time, thus escaping local minima and gradually “freezing” into a global optimum.
 
     Parameters
     ----------

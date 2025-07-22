@@ -14,7 +14,7 @@ def minimize(
     seed: int = None
 ) -> np.ndarray:
     """
-    Continuous Ant Colony Optimization (ACO) for function minimization.
+    Continuous Ant Colony Optimization (ACO) for function minimization.  Simulates how ants deposit and follow pheromone trails to collectively reinforce shorter paths, using positive feedback and probabilistic path selection to converge on high-quality solutions.
 
     Parameters
     ----------

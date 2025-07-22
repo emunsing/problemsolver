@@ -10,12 +10,11 @@ def minimize(
     beta0: Annotated[float, Interval(low=0.1, high=1.0, step=0.05, log=False)] = 0.5,
     gamma: Annotated[float, Interval(low=0.1, high=10.0, step=None, log=True)] = 1.0,
     n_iterations: int = 100,
-    bounds: np.ndarray = None,
     max_iters_without_improvement: int = 10,
     seed: int = None
 ) -> np.ndarray:
     """
-    Firefly Algorithm optimizer.
+    Firefly Algorithm optimizer.  Mimics fireflies’ bioluminescent communication by moving each firefly toward brighter (better) peers with an attractiveness that decays with distance, plus a random perturbation to explore.
 
     Parameters
     ----------
@@ -43,54 +42,44 @@ def minimize(
     np.ndarray
         Best‐found solution.
     """
+
     rng = np.random.default_rng(seed)
     dim = initial_guess.size
 
-    # Initialize population
-    if bounds is not None:
-        lb, ub = bounds
-        pop = rng.uniform(lb, ub, size=(pop_size, dim))
-    else:
-        # Initialize around initial guess
-        spread = 0.1 * np.maximum(1.0, np.abs(initial_guess))
-        pop = initial_guess + rng.standard_normal((pop_size, dim)) * spread
+    # Unbounded initialization around initial guess
+    spread = 0.1 * np.maximum(1.0, np.abs(initial_guess))
+    pop = initial_guess + rng.standard_normal((pop_size, dim)) * spread
 
-    # Evaluate initial population
+    # Initial evaluation
     intensity = np.array([fun(x) for x in pop])
     best_idx = np.argmin(intensity)
-    best = pop[best_idx].copy()
-    best_val = intensity[best_idx]
+    best, best_val = pop[best_idx].copy(), intensity[best_idx]
     iters_without_improvement = 0
 
     for _ in range(n_iterations):
-        # For each firefly
-        for i in range(pop_size):
-            # Compare with all other fireflies
-            for j in range(pop_size):
-                if intensity[j] < intensity[i]:  # brighter firefly found
-                    # Calculate distance
-                    r = np.linalg.norm(pop[i] - pop[j])
-                    # Calculate attractiveness
-                    beta = beta0 * np.exp(-gamma * r**2)
-                    # Move firefly i toward j
-                    pop[i] = pop[i] + beta * (pop[j] - pop[i]) + alpha * (rng.random(dim) - 0.5)
+        # All pairwise differences and distances
+        diff    = pop[:, None, :] - pop[None, :, :]               # (n, n, dim)
+        d2      = np.sum(diff**2, axis=2)                         # (n, n)
+        beta    = beta0 * np.exp(-gamma * d2)                     # (n, n)
+        brighter= (intensity[None, :] < intensity[:, None])       # (n, n)
 
-                    # Apply bounds if provided
-                    if bounds is not None:
-                        pop[i] = np.minimum(np.maximum(pop[i], lb), ub)
+        # Compute movement toward all brighter fireflies
+        move = -np.einsum('ij,ijk->ik', beta * brighter, diff)    # (n, dim)
+        rand = alpha * (rng.random((pop_size, dim)) - 0.5)
 
-                    # Update intensity
-                    intensity[i] = fun(pop[i])
+        pop += move + rand                                        # update population
 
-        # Update best solution
+        # Single evaluation per firefly
+        intensity = np.array([fun(x) for x in pop])
+
+        # Track best
         idx = np.argmin(intensity)
         if intensity[idx] < best_val:
-            best = pop[idx].copy()
-            best_val = intensity[idx]
+            best, best_val = pop[idx].copy(), intensity[idx]
             iters_without_improvement = 0
         else:
             iters_without_improvement += 1
             if iters_without_improvement >= max_iters_without_improvement:
                 break
 
-    return best 
+    return best

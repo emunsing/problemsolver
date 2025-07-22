@@ -16,7 +16,7 @@ def minimize(
     seed: int = None
 ) -> np.ndarray:
     """
-    Genetic Algorithm optimizer.
+    Genetic Algorithm optimizer.  Emulate biological evolution by encoding candidate solutions as “chromosomes” that undergo selection, crossover, and mutation to iteratively breed fitter offspring.
 
     Parameters
     ----------

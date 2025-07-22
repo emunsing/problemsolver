@@ -14,7 +14,7 @@ def minimize(
     seed: int = None,
 ) -> np.ndarray:
     """
-    Particle Swarm Optimization (PSO).
+    Particle Swarm Optimization (PSO). Inspired by flocking birds or schooling fish, moves particles through the search space by combining each particle’s best-known position with the swarm’s global best, balancing personal and social learning.
 
     Parameters
     ----------
