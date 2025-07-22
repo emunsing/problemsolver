@@ -36,7 +36,8 @@ def to_camel_case(text: str) -> str:
 class OptimizerGenerator:
     def __init__(self, openai_api_key: str, model_name: str = "o4-mini",
                  n_tune_functions: int = 10, n_test_functions: int = 20, 
-                 n_tuning_trials: int = 100, n_dims: int = 5, output_dir: str = "data/output"):
+                 n_tuning_trials: int = 100, n_dims: int = 5, output_dir: str = "data/output",
+                 pareto_rtol: float = 0.0):
         """Initialize the optimizer generator."""
         self.llm = ChatOpenAI(
             openai_api_key=openai_api_key,
@@ -47,6 +48,7 @@ class OptimizerGenerator:
         self.n_tuning_trials = n_tuning_trials
         self.n_dims = n_dims
         self.output_dir = pathlib.Path(output_dir).expanduser().resolve()
+        self.pareto_rtol = pareto_rtol
 
         self.performance_file = self.output_dir / "optimizers_performant.csv"
         self.load_performance_file(self.performance_file, empty_ok=False)  # Ensure that file exists and is well-formatted
@@ -83,13 +85,26 @@ Your task is to create novel numerical optimization algorithms inspired by emerg
 
 You must create a complete, runnable Python function that can be executed immediately. The function should be well-documented and follow Python best practices."""
 
-    @staticmethod
-    def get_generation_prompt(inspiration: str) -> str:
+
+    def get_generation_prompt(self, inspiration: str) -> str:
         """Generate the prompt for creating a new optimizer."""
         return f"""Create a novel optimization algorithm inspired by this emergent behavior:
 
 # INSPIRATION: {inspiration}
 
+{self.get_requirements_prompt()}
+
+CRITICAL THINKING:
+Consider how {inspiration} relates to optimization:
+- What mathematical principles underlie this behavior?
+- How does this behavior achieve its goals efficiently?
+- What aspects could be adapted for function minimization?
+- How can we model the key mechanisms algorithmically?
+
+Create a complete, runnable Python function that implements your novel algorithm."""
+
+    def get_requirements_prompt(self) -> str:
+        return """
 # GOALS AND EVALUATION:
 - Create a novel algorithm that combines ideas from existing metaheuristics with inspiration from the naturally occuring emergent behavior above.
 - Avoid simple exploration/exploitation or canonical first- and second-order methods. Aim to create something new and innovative, fully utilizing the inspiration from naturally occuring systems.
@@ -146,17 +161,10 @@ def minimize(
     max_iterations: int = 1000,
     seed: int = None
 ) -> np.ndarray:
+    # INSPIRATION: ...
     # Optimization algorithm implementation here
 ```
-
-CRITICAL THINKING:
-Consider how {inspiration} relates to optimization:
-- What mathematical principles underlie this behavior?
-- How does this behavior achieve its goals efficiently?
-- What aspects could be adapted for function minimization?
-- How can we model the key mechanisms algorithmically?
-
-Create a complete, runnable Python function that implements your novel algorithm."""
+"""
 
     @staticmethod
     def get_debug_prompt(original_prompt: str, code: str, error: str) -> str:
@@ -644,7 +652,7 @@ Please create an improved version that addresses these specific issues. Focus on
             self.save_optimizer_performance(self.all_performance_file, performance)
 
             # Check if it advances the Pareto frontier
-            if self.is_pareto_improvement(performance, existing_frontier):
+            if self.is_pareto_improvement(performance, existing_frontier, rtol=self.pareto_rtol):
                 print("✓ Pareto frontier advancement detected!")
                 self.save_optimizer_code(self.code_output_dir_performant, final_code, performance)
                 self.save_optimizer_performance(self.performance_file, performance)
@@ -753,11 +761,12 @@ def inspire(api_key: str, model: str, n_pareto_attempts: int, n_tune_functions: 
 @click.option('--n-tune-functions', default=10, type=int, help='Number of functions for tuning')
 @click.option('--n-test-functions', default=20, type=int, help='Number of functions for testing')
 @click.option('--n-tuning-trials', default=100, type=int, help='Number of tuning trials')
+@click.option('--pareto-rtol', default=0.0, type=float, help='Relative tolerance for Pareto frontier')
 @click.option('--n-dims', default=5, type=int, help='Number of dimensions for test functions')
 @click.option('--output-dir', default="data/output", help='Output directory')
 @click.option('--ideas-file', default="data/emergent_optimization_ideas.txt", help='File containing emergent optimization ideas')
 def sweep(api_key: str, model: str, start_index: int , n_pareto_attempts: int, n_tune_functions: int,
-         n_test_functions: int, n_tuning_trials: int, n_dims: int, output_dir: str, ideas_file: str):
+         n_test_functions: int, n_tuning_trials: int, n_dims: int, output_dir: str, ideas_file: str, pareto_rtol: float = 0.0   ):
     """Generate new optimizers using LLMs, sweeping through all inspirations."""
 
     generator = OptimizerGenerator(
@@ -767,7 +776,8 @@ def sweep(api_key: str, model: str, start_index: int , n_pareto_attempts: int, n
         n_test_functions=n_test_functions,
         n_tuning_trials=n_tuning_trials,
         n_dims=n_dims,
-        output_dir=output_dir
+        output_dir=output_dir,
+        pareto_rtol=pareto_rtol
     )
     ideas = generator.load_emergent_ideas(ideas_file)
     if not ideas:
