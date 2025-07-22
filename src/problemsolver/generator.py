@@ -679,7 +679,7 @@ class BlendedOptimizerGenerator(OptimizerGenerator):
     def __init__(self, *args, n_blend_examples: int = 3, **kwargs):
         super().__init__(*args, **kwargs)
         self.n_blend_examples = n_blend_examples
-        assert len(self.code_output_dir_performant.glob('*.py')) > 0, "No performant optimizers found in {self.code_output_dir_performant}"
+        assert len(list(self.code_output_dir_performant.glob('*.py'))) > 0, f"No performant optimizers found in {self.code_output_dir_performant}"
 
     def get_generation_prompt(self, inspiration: str) -> str:
         """
