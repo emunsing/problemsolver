@@ -95,6 +95,21 @@ Combinatoric search algorithms:
 - Keane's bump function
 
 Next steps:
+
+Documentation:
+- [ ] Reference problems, sample instantiations, results
+- [ ] Reference literature algorithms, generated algorithms
+
+Conventional optimization
+- [ ] Constrained optimization
+- [ ] Mixed-integer programming or combinatorial optimization
+
+LLM-oriented tasks: 
+- [ ] Gradient-based models
+- [ ] Integrate GPU operations or measure parallelism
+- [ ] 
+
+Next steps:
 - [x] Parameterize output directory; ensure that CSV is populated
-- [ ] Test with gpt-4.1-mini
+- [x] Test with gpt-4.1-mini
 - [x] Mash-up of two different ideas: Ideally requires either the docstring in the 
