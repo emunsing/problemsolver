@@ -160,15 +160,19 @@ def benchmark_optimizer(optimizer: Callable, test_functions, tune_functions, n_t
     # Tune the optimizer
     objective = make_optuna_objective(optimizer, func_optima_tuples=tune_functions)
     study = optuna.create_study(direction="minimize")
+    start_time = time.time()
     study.optimize(objective, n_trials=n_tuning_trials)
+    print(f"Profiling optuna {time.time() - start_time:.3f}")
     best_params = study.best_params
     
     # Test with tuned parameters
+    start_time = time.time()
     log_rel_error, time_elapsed = multivariate_model_runner(
         minimizer=optimizer,
         func_optima_tuples=test_functions,
         **best_params
     )
+    print(f"Profiling model runner {time.time() - start_time:.3f}")
     return log_rel_error, time_elapsed, best_params
 
 
