@@ -6,6 +6,7 @@ This module generates new optimization algorithms using LLMs, validates them,
 benchmarks their performance, and checks if they advance the Pareto frontier.
 """
 
+import time
 import os
 import sys
 import csv
@@ -605,9 +606,12 @@ Please create an improved version that addresses these specific issues. Focus on
             ]
 
             # Validate the optimizer
+            generate_start = time.time()
             success, final_func, final_code, error = self.generate_optimizer(messages=messages,
                                                                              original_prompt=generation_prompt,
                                                                              )
+            generate_end = time.time()
+            print(f"Profiling generation {generate_end - generate_start:.3f}")
 
             if not success or final_func is None:
                 print(f"Generation failed: {error}")
@@ -623,7 +627,9 @@ Please create an improved version that addresses these specific issues. Focus on
             
             # Benchmark the optimizer
             try:
+                benchmark_start = time.time()
                 performance = self.benchmark_new_optimizer(final_func, optimizer_name)
+                print(f"Profiling benchmark {time.time() - benchmark_start:.3f}")
                 if not performance:
                     print("Benchmarking failed")
                     failure_analysis = {
