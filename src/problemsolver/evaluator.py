@@ -3,6 +3,8 @@ from typing import Annotated, Callable, get_origin, get_args
 from problemsolver.utils import Interval
 from problemsolver.function_generators import fun_nonlinear as fun_generator
 import optuna
+import multiprocessing as mp
+import signal
 import time
 import numpy as np
 import click
@@ -11,7 +13,10 @@ import csv
 import os
 from problemsolver.optimizers import OPTIMIZERS  # Import the mapping
 
-MAX_ALLOWED_PROBLEM_TIME = 2.0  # Maximum allowed time for a single problem in seconds
+MAX_ALLOWED_PROBLEM_TIME = 5.0  # Maximum allowed time for a single problem in seconds
+MAX_ALLOWED_ROLLING_AVERAGE_FUNCTION_TIME = 2.0
+MIN_ALLOWED_OPTIMUM_VALUE = 1e-3
+ROLLING_WINDOW_SIZE = 3
 
 def generate_test_functions(n_samples, n_dims, function_names = None) -> list[tuple[Callable, np.ndarray]]:
     # Generate a list of [function, optimum] pairs
@@ -22,7 +27,7 @@ def generate_test_functions(n_samples, n_dims, function_names = None) -> list[tu
         while n_func_samples < n_samples:
             # Generate a function and its optimum
             func, optimum_x = fun_generator.get_function_and_optimum(func_name, n_dims=n_dims)
-            if np.abs(func(optimum_x)) < 1e-6:
+            if np.abs(func(optimum_x)) <= MIN_ALLOWED_OPTIMUM_VALUE:
                 print(f"Skipping {func_name} because its optimal value is near-zero")
                 # Skip to avoid functions with near-zero optimal values which will create log errors
                 continue
@@ -38,13 +43,62 @@ TEST_FUNCTIONS = generate_test_functions(n_samples=2, n_dims=N_DIMS_TEST)
 
 DEFAULT_SAVE_PATH = "src/problemsolver/data/output/optimizer_performance.csv"
 
-def multivariate_model_runner(minimizer: Callable,
+
+def _evaluate_single_function(minimizer: Callable,
+                             test_func: Callable,
+                             optimum: np.ndarray,
+                             max_allowed_time_per_function: float,
+                             **kwargs) -> tuple[float, float]:
+    """
+    Worker function to evaluate a single test function.
+    
+    Args:
+        args_tuple: (test_func, optimum, minimizer, kwargs, max_allowed_time_per_function, max_allowed_rolling_average_function_time)
+    
+    Returns:
+        Tuple of (log_rel_error, problem_time)
+    """
+    
+    # Set up timeout handler for this process
+    def timeout_handler(signum, frame):
+        raise TimeoutError(f"Function evaluation exceeded {max_allowed_time_per_function}s")
+    
+    # Set signal handler for timeout
+    signal.signal(signal.SIGALRM, timeout_handler)
+    signal.alarm(int(max_allowed_time_per_function))
+    
+    try:
+        problem_start_time = time.time()
+        
+        denominator = np.abs(test_func(optimum))
+        assert denominator > MIN_ALLOWED_OPTIMUM_VALUE, "Optimal value should not be near-zero"
+        
+        x_hat = minimizer(fun=test_func, initial_guess=np.zeros(len(optimum)), **kwargs)
+        numerator = np.abs(test_func(x_hat) - test_func(optimum))
+        rel_error = numerator / denominator
+        
+        if rel_error <= 1e-12:
+            log_rel_error = -12  # Avoid log-zero issues when very small numbers
+        else:
+            log_rel_error = np.log10(rel_error)
+            
+        problem_elapsed_time = time.time() - problem_start_time
+        
+        return log_rel_error, problem_elapsed_time
+        
+    finally:
+        # Always cancel the alarm, even if an exception occurred
+        try:
+            signal.alarm(0)
+        except Exception:
+            # Ignore any errors from signal.alarm during cleanup
+            pass
+
+
+
+def single_thread_multivariate_model_runner(minimizer: Callable,
                               func_optima_tuples: list[tuple[Callable, np.ndarray]], **kwargs) -> tuple[float, float]:
     """
-    reliant on the `minimize` function imported into this context.
-    TODO: Make the `minimize` function a parameter to this function.
-    TODO: Make the function generator TUNE_FUNCTIONS a parameter to this function.
-
     Return a univariate metric for performance of the minimizer.  In this case, we use the log of the relative error,
     plus the mean time taken to run the minimization across a set of test functions.
 
@@ -52,7 +106,6 @@ def multivariate_model_runner(minimizer: Callable,
     Full loss should be computed within this. Return the loss value for Optuna to minimize.
     return: float
     """
-
     log_rel_errors = []
     problem_times =  [0.1 * MAX_ALLOWED_PROBLEM_TIME] * 3  # Keep a rolling average of the last 3 problem times, prepopulate with something safe
     time_start = time.time()
@@ -81,6 +134,93 @@ def multivariate_model_runner(minimizer: Callable,
     return np.mean(log_rel_errors), mean_time
 
 
+def multivariate_model_runner(minimizer: Callable,
+                              func_optima_tuples: list[tuple[Callable, np.ndarray]], 
+                              n_jobs: int = None,
+                              max_allowed_time_per_function: float = 30.0,
+                              max_allowed_rolling_average_function_time: float = 20.0,
+                              **kwargs) -> tuple[float, float]:
+    """
+    Parallel version of the multivariate model runner with proper timeout handling.
+    
+    Args:
+        minimizer: The minimization function to test
+        func_optima_tuples: List of (function, optimum) pairs
+        max_allowed_time_per_function: Maximum time allowed for any single function evaluation
+        max_allowed_rolling_average_function_time: Maximum allowed rolling average time
+        **kwargs: Additional parameters for the minimizer
+    
+    Returns:
+        Tuple of (mean_log_rel_error, mean_time)
+    """
+    n_jobs = n_jobs or max(mp.cpu_count() - 2, 1)
+    if n_jobs == 1:
+        return single_thread_multivariate_model_runner(minimizer, func_optima_tuples, **kwargs)
+
+    log_rel_errors = []
+    problem_times = [0.1 * max_allowed_rolling_average_function_time] * ROLLING_WINDOW_SIZE  # Rolling average prepopulation
+    time_start = time.time()
+    
+    # Use multiprocessing with timeout protection
+    pool = mp.Pool(processes=min(n_jobs, len(func_optima_tuples)))
+
+    args_list = [
+        (test_func, optimum, minimizer, max_allowed_time_per_function) for test_func, optimum in func_optima_tuples
+    ]
+
+
+    try:
+        # Submit all tasks asynchronously
+        results = [pool.apply_async(_evaluate_single_function, args=args, kwds=kwargs) for args in args_list]
+        
+        # Collect results with timeout monitoring
+        for i, result in enumerate(results):
+            try:
+                # Wait for result with timeout
+                log_rel_error, problem_elapsed_time = result.get(timeout=max_allowed_time_per_function)
+                
+                log_rel_errors.append(log_rel_error)
+                problem_times.append(problem_elapsed_time)
+                problem_times = problem_times[1:]  # Keep only the last 3 times
+                
+                # Check rolling average timeout
+                current_rolling_avg = np.mean(problem_times)
+                if current_rolling_avg > max_allowed_rolling_average_function_time:
+                    # Kill all remaining processes using proper pool termination
+                    pool.terminate()
+                    pool.join()
+                    raise TimeoutError(f"Rolling average time {current_rolling_avg:.2f}s exceeded limit {max_allowed_rolling_average_function_time}s")
+                    
+            except (mp.TimeoutError, TimeoutError, Exception) as e:
+                # Catch both multiprocessing timeouts and worker exceptions
+                # Kill all remaining processes using proper pool termination
+                pool.terminate()
+                pool.join()
+                
+                if isinstance(e, mp.TimeoutError):
+                    raise TimeoutError(f"Function evaluation {i} exceeded {max_allowed_time_per_function}s")
+                elif isinstance(e, TimeoutError):
+                    raise e  # Re-raise worker timeout errors
+                else:
+                    raise TimeoutError(f"Function evaluation {i} failed with error: {e}")
+                    
+    finally:
+        # Ensure pool is always properly cleaned up
+        try:
+            pool.terminate()
+            pool.join()
+        except Exception:
+            # Ignore any errors during cleanup
+            pass
+    
+    time_elapsed = time.time() - time_start
+    mean_time = time_elapsed / len(func_optima_tuples)
+    
+    print(f"Trial with params {kwargs} took total {time_elapsed:.2f}s, mean time {mean_time:.3f}s, mean log rel errors: {np.mean(log_rel_errors):.3f}")
+    
+    return np.mean(log_rel_errors), mean_time
+
+
 def univariate_model_runner(**kwargs):
     log_rel_error, mean_time_elapsed = multivariate_model_runner(**kwargs)
     total_loss = np.mean(log_rel_error) + 100 * mean_time_elapsed
@@ -88,12 +228,16 @@ def univariate_model_runner(**kwargs):
 
 
 def make_optuna_objective(minimizer_to_test: Callable,
-                          func_optima_tuples: list[tuple[Callable, np.ndarray]]) -> Callable:
+                          func_optima_tuples: list[tuple[Callable, np.ndarray]],
+                          n_jobs: int = None,
+                          max_allowed_time_per_function: float = MAX_ALLOWED_PROBLEM_TIME,
+                          max_allowed_rolling_average_function_time: float = MAX_ALLOWED_ROLLING_AVERAGE_FUNCTION_TIME,
+                          ) -> Callable:
     sig = signature(minimizer_to_test)
 
     # The term "trial" is magic used by Optuna
     def optuna_loss(trial):
-        kwargs = {'minimizer': minimizer_to_test, 'func_optima_tuples': func_optima_tuples}
+        kwargs = {'minimizer': minimizer_to_test, 'func_optima_tuples': func_optima_tuples, 'n_jobs': n_jobs, 'max_allowed_time_per_function': max_allowed_time_per_function, 'max_allowed_rolling_average_function_time': max_allowed_rolling_average_function_time}
         for name, param in sig.parameters.items():
             if name in ['fun', 'initial_guess']:
                 continue
@@ -156,9 +300,19 @@ def test_minimizer(minimizer_to_test: Callable, tune_functions, test_functions, 
     print(f"Test results: mean log rel errors = time elapsed = {time_elapsed:.2f}s, mean log rel errors {log_rel_errors:.3f}")
 
 
-def benchmark_optimizer(optimizer: Callable, test_functions, tune_functions, n_tuning_trials: int = 50):
+
+def benchmark_optimizer(optimizer: Callable, 
+                       test_functions, 
+                       tune_functions, 
+                       n_tuning_trials: int = 50,
+                       n_jobs: int = None,
+                       max_allowed_time_per_function: float = MAX_ALLOWED_PROBLEM_TIME,
+                       max_allowed_rolling_average_function_time: float = MAX_ALLOWED_ROLLING_AVERAGE_FUNCTION_TIME):
     # Tune the optimizer
-    objective = make_optuna_objective(optimizer, func_optima_tuples=tune_functions)
+    objective = make_optuna_objective(optimizer, func_optima_tuples=tune_functions, 
+        n_jobs=n_jobs,
+        max_allowed_time_per_function=max_allowed_time_per_function, 
+        max_allowed_rolling_average_function_time=max_allowed_rolling_average_function_time)
     study = optuna.create_study(direction="minimize")
     start_time = time.time()
     study.optimize(objective, n_trials=n_tuning_trials)
@@ -170,6 +324,9 @@ def benchmark_optimizer(optimizer: Callable, test_functions, tune_functions, n_t
     log_rel_error, time_elapsed = multivariate_model_runner(
         minimizer=optimizer,
         func_optima_tuples=test_functions,
+        n_jobs=n_jobs,
+        max_allowed_time_per_function=max_allowed_time_per_function,
+        max_allowed_rolling_average_function_time=max_allowed_rolling_average_function_time,
         **best_params
     )
     print(f"Profiling model runner {time.time() - start_time:.3f}")
@@ -178,9 +335,13 @@ def benchmark_optimizer(optimizer: Callable, test_functions, tune_functions, n_t
 
 
 def benchmark_all_optimizers(n_tune_functions: int = 2, n_test_functions: int = 2, 
-                           n_tuning_trials: int = 10, n_dims: int = 2, save_fig: str | None = None,
+                           n_tuning_trials: int = 10, n_dims: int = 2, 
+                           n_jobs: int = 1,
+                           save_fig: str | None = None,
                            save_csv: str | None = None,
                            optimizer_names: list[str] | None = None,
+                           max_allowed_time_per_function: float = MAX_ALLOWED_PROBLEM_TIME,
+                           max_allowed_rolling_average_function_time: float = MAX_ALLOWED_ROLLING_AVERAGE_FUNCTION_TIME,
                              seed: int | None = None):
     """
     Benchmark optimizers and create a scatter plot.
@@ -228,7 +389,9 @@ def benchmark_all_optimizers(n_tune_functions: int = 2, n_test_functions: int = 
         print(f"[{i+1}/{len(optimizer_names)}] Testing {name}...")
         
         try:
-            log_rel_error, time_elapsed, best_params = benchmark_optimizer(optimizer, test_functions, tune_functions, n_tuning_trials)
+            log_rel_error, time_elapsed, best_params = benchmark_optimizer(optimizer=optimizer, test_functions=test_functions, tune_functions=tune_functions, n_tuning_trials=n_tuning_trials, n_jobs=n_jobs, 
+            max_allowed_time_per_function=max_allowed_time_per_function, 
+            max_allowed_rolling_average_function_time=max_allowed_rolling_average_function_time)
             
             results.append({
                 'name': name,

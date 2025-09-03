@@ -20,7 +20,7 @@ from langchain_openai.chat_models import ChatOpenAI
 from langchain.schema import HumanMessage, SystemMessage
 from typing import Annotated
 from problemsolver.utils import check_optimizer_annotations, check_optimizer_function, Interval
-from problemsolver.evaluator import benchmark_optimizer, generate_test_functions
+from problemsolver.evaluator import benchmark_optimizer, generate_test_functions, MAX_ALLOWED_PROBLEM_TIME, MAX_ALLOWED_ROLLING_AVERAGE_FUNCTION_TIME
 import re
 import unicodedata
 
@@ -35,19 +35,28 @@ def to_camel_case(text: str) -> str:
     return ''.join(word.capitalize() for word in parts)
 
 class OptimizerGenerator:
-    def __init__(self, openai_api_key: str, model_name: str = "o4-mini",
-                 n_tune_functions: int = 10, n_test_functions: int = 20, 
-                 n_tuning_trials: int = 100, n_dims: int = 5, output_dir: str = "data/output",
-                 pareto_rtol: float = 0.0):
+    def __init__(self, api_key: str,
+                 model_name: str = "o4-mini",
+                 n_tune_functions: int = 10,
+                 n_test_functions: int = 20,
+                 n_tuning_trials: int = 100,
+                 n_dims: int = 5,
+                 output_dir: str = "data/output",
+                 pareto_rtol: float = 0.0, n_jobs: int = 1,
+                 max_allowed_time_per_function: float = MAX_ALLOWED_PROBLEM_TIME,
+                 max_allowed_rolling_average_function_time: float = MAX_ALLOWED_ROLLING_AVERAGE_FUNCTION_TIME):
         """Initialize the optimizer generator."""
         self.llm = ChatOpenAI(
-            openai_api_key=openai_api_key,
+            openai_api_key=api_key,
             model_name=model_name,
         )
         self.n_tune_functions = n_tune_functions
         self.n_test_functions = n_test_functions
         self.n_tuning_trials = n_tuning_trials
+        self.max_allowed_time_per_function = max_allowed_time_per_function
+        self.max_allowed_rolling_average_function_time = max_allowed_rolling_average_function_time
         self.n_dims = n_dims
+        self.n_jobs = n_jobs
         self.output_dir = pathlib.Path(output_dir).expanduser().resolve()
         self.pareto_rtol = pareto_rtol
 
@@ -307,7 +316,10 @@ Please fix the error and return the corrected Python function. Ensure it follows
             optimizer=optimizer_func,
             test_functions=test_functions,
             tune_functions=tune_functions,
-            n_tuning_trials=self.n_tuning_trials
+            n_tuning_trials=self.n_tuning_trials,
+            n_jobs=self.n_jobs,
+            max_allowed_time_per_function=self.max_allowed_time_per_function,
+            max_allowed_rolling_average_function_time=self.max_allowed_rolling_average_function_time
         )
 
         return {
@@ -748,7 +760,7 @@ def main(api_key: str, model: str, n_pareto_attempts: int, n_tune_functions: int
          n_test_functions: int, n_tuning_trials: int, n_dims: int):
     """Generate new optimizers using LLMs."""
     generator = OptimizerGenerator(
-        openai_api_key=api_key,
+        api_key=api_key,
         model_name=model,
         n_tune_functions=n_tune_functions,
         n_test_functions=n_test_functions,
@@ -790,7 +802,7 @@ def inspire(api_key: str, model: str, n_pareto_attempts: int, n_tune_functions: 
          n_test_functions: int, n_tuning_trials: int, n_dims: int):
     """Generate new optimizers using LLMs."""
     generator = OptimizerGenerator(
-        openai_api_key=api_key,
+        api_key=api_key,
         model_name=model,
         n_tune_functions=n_tune_functions,
         n_test_functions=n_test_functions,
@@ -825,15 +837,21 @@ def inspire(api_key: str, model: str, n_pareto_attempts: int, n_tune_functions: 
 @click.option('--n-tuning-trials', default=100, type=int, help='Number of tuning trials')
 @click.option('--pareto-rtol', default=0.0, type=float, help='Relative tolerance for Pareto frontier')
 @click.option('--n-dims', default=5, type=int, help='Number of dimensions for test functions')
+@click.option('--n-jobs', default=1, type=int, help='Number of jobs to use for tuning')
+@click.option('--max-allowed-time-per-function', default=MAX_ALLOWED_PROBLEM_TIME, type=float, help='Maximum allowed time per function')
+@click.option('--max-allowed-rolling-average-function-time', default=MAX_ALLOWED_ROLLING_AVERAGE_FUNCTION_TIME, type=float, help='Maximum allowed rolling average function time')
 @click.option('--output-dir', default="data/output", help='Output directory')
 @click.option('--ideas-file', default="data/emergent_optimization_ideas.txt", help='File containing emergent optimization ideas')
 def sweep(api_key: str, model: str, start_index: int , n_pareto_attempts: int, n_tune_functions: int,
-         n_test_functions: int, n_tuning_trials: int, n_dims: int, output_dir: str, ideas_file: str, pareto_rtol: float = 0.0   ):
+         n_test_functions: int, n_tuning_trials: int, n_dims: int, output_dir: str, ideas_file: str, pareto_rtol: float = 0.0, n_jobs: int = 1, max_allowed_time_per_function: float = MAX_ALLOWED_PROBLEM_TIME, max_allowed_rolling_average_function_time: float = MAX_ALLOWED_ROLLING_AVERAGE_FUNCTION_TIME):
     """Generate new optimizers using LLMs, sweeping through all inspirations."""
 
     generator = OptimizerGenerator(
-        openai_api_key=api_key,
+        api_key=api_key,
         model_name=model,
+        n_jobs=n_jobs,
+        max_allowed_time_per_function=max_allowed_time_per_function,
+        max_allowed_rolling_average_function_time=max_allowed_rolling_average_function_time,
         n_tune_functions=n_tune_functions,
         n_test_functions=n_test_functions,
         n_tuning_trials=n_tuning_trials,
@@ -865,18 +883,24 @@ def sweep(api_key: str, model: str, start_index: int , n_pareto_attempts: int, n
 @click.option('--n-tuning-trials', default=100, type=int, help='Number of tuning trials')
 @click.option('--pareto-rtol', default=0.0, type=float, help='Relative tolerance for Pareto frontier')
 @click.option('--n-dims', default=5, type=int, help='Number of dimensions for test functions')
+@click.option('--n-jobs', default=1, type=int, help='Number of jobs to use for tuning')
+@click.option('--max-allowed-time-per-function', default=MAX_ALLOWED_PROBLEM_TIME, type=float, help='Maximum allowed time per function')
+@click.option('--max-allowed-rolling-average-function-time', default=MAX_ALLOWED_ROLLING_AVERAGE_FUNCTION_TIME, type=float, help='Maximum allowed rolling average function time')
 @click.option('--output-dir', default="data/output", help='Output directory')
 @click.option('--ideas-file', default="data/emergent_optimization_ideas.txt", help='File containing emergent optimization ideas')
 @click.option('--n-blend-examples', default=3, type=int, help='Number of code examples to blend for inspiration')
 def blend_sweep(api_key: str, model: str, start_index: int , n_pareto_attempts: int, n_tune_functions: int,
-         n_test_functions: int, n_tuning_trials: int, n_dims: int, output_dir: str, ideas_file: str, pareto_rtol: float = 0.0, n_blend_examples: int = 3):
+         n_test_functions: int, n_tuning_trials: int, n_dims: int, output_dir: str, ideas_file: str, pareto_rtol: float = 0.0, n_blend_examples: int = 3, n_jobs: int = 1, max_allowed_time_per_function: float = MAX_ALLOWED_PROBLEM_TIME, max_allowed_rolling_average_function_time: float = MAX_ALLOWED_ROLLING_AVERAGE_FUNCTION_TIME):
     """Generate new optimizers using LLMs, sweeping through all inspirations and blending with existing performant optimizers."""
     generator = BlendedOptimizerGenerator(
-        openai_api_key=api_key,
+        api_key=api_key,
         model_name=model,
         n_tune_functions=n_tune_functions,
         n_test_functions=n_test_functions,
         n_tuning_trials=n_tuning_trials,
+        n_jobs=n_jobs,
+        max_allowed_time_per_function=max_allowed_time_per_function,
+        max_allowed_rolling_average_function_time=max_allowed_rolling_average_function_time,
         n_dims=n_dims,
         output_dir=output_dir,
         pareto_rtol=pareto_rtol,
