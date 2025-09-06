@@ -2,6 +2,7 @@ from inspect import signature
 from typing import Annotated, Callable, get_origin, get_args
 from problemsolver.utils import Interval
 from problemsolver.function_generators import fun_nonlinear as fun_generator
+from problemsolver.function_generators import ProblemFunction
 import optuna
 import multiprocessing as mp
 import signal
@@ -27,7 +28,7 @@ def generate_test_functions(n_samples, n_dims, function_names = None) -> list[tu
         while n_func_samples < n_samples:
             # Generate a function and its optimum
             func, optimum_x = fun_generator.get_function_and_optimum(func_name, n_dims=n_dims)
-            if np.abs(func(optimum_x)) <= MIN_ALLOWED_OPTIMUM_VALUE:
+            if np.abs(func(optimum_x)) <= MIN_ALLOWED_OPTIMUM_VALUE * 1.01:
                 print(f"Skipping {func_name} because its optimal value is near-zero")
                 # Skip to avoid functions with near-zero optimal values which will create log errors
                 continue
@@ -44,9 +45,7 @@ TEST_FUNCTIONS = generate_test_functions(n_samples=2, n_dims=N_DIMS_TEST)
 DEFAULT_SAVE_PATH = "src/problemsolver/data/output/optimizer_performance.csv"
 
 
-def _evaluate_single_function(minimizer: Callable,
-                             test_func: Callable,
-                             optimum: np.ndarray,
+def _evaluate_single_function(wrapped_func: ProblemFunction,
                              max_allowed_time_per_function: float,
                              **kwargs) -> tuple[float, float]:
     """
@@ -66,7 +65,11 @@ def _evaluate_single_function(minimizer: Callable,
     # Set signal handler for timeout
     signal.signal(signal.SIGALRM, timeout_handler)
     signal.alarm(int(max_allowed_time_per_function))
-    
+
+    optimum = wrapped_func.optimum_x
+    test_func = wrapped_func  # Directs to the __call__ method
+    minimizer = wrapped_func.optimizer
+
     try:
         problem_start_time = time.time()
         
@@ -164,10 +167,10 @@ def multivariate_model_runner(minimizer: Callable,
     # Use multiprocessing with timeout protection
     pool = mp.Pool(processes=min(n_jobs, len(func_optima_tuples)))
 
-    args_list = [
-        (test_func, optimum, minimizer, max_allowed_time_per_function) for test_func, optimum in func_optima_tuples
-    ]
-
+    args_list = []
+    for test_func, optimum in func_optima_tuples:
+        test_func.optimizer = minimizer  # Attach the minimizer to the function for use in the worker
+        args_list.append((test_func, max_allowed_time_per_function))
 
     try:
         # Submit all tasks asynchronously
@@ -271,31 +274,45 @@ def make_optuna_objective(minimizer_to_test: Callable,
     return optuna_loss
 
 
-def tune_minimizer(minimizer_to_test: Callable, tune_functions, n_trials: int = 50):
+def tune_minimizer(minimizer_to_test: Callable, tune_functions, n_jobs=1, n_trials: int = 50):
     """
     Tune the minimizer using Optuna.
 
     :param minimizer_to_test: The minimizer function to tune.
     :param tune_functions: List of (function, optimum) pairs for tuning.
     :param n_trials: Number of trials for tuning.
+    :param n_jobs: Number of parallel jobs to use.
     :return: The best parameters found by Optuna.
     """
-    objective = make_optuna_objective(minimizer_to_test, func_optima_tuples=tune_functions)
+    objective = make_optuna_objective(minimizer_to_test,func_optima_tuples=tune_functions, n_jobs=n_jobs)
     study = optuna.create_study(direction="minimize")
     study.optimize(objective, n_trials=n_trials)
     return study.best_params
 
 
-def test_minimizer(minimizer_to_test: Callable, tune_functions, test_functions, n_tuning_trials: int = 50):
+def test_minimizer(minimizer_to_test: Callable, test_functions, n_jobs=1):
+    """
+    Use default params
+
+    :return: None
+    """
+    log_rel_errors, time_elapsed = multivariate_model_runner(minimizer=minimizer_to_test,
+                                                             func_optima_tuples=test_functions,
+                                                             n_jobs=n_jobs)
+    print(f"Test results: mean log rel errors = time elapsed = {time_elapsed:.2f}s, mean log rel errors {log_rel_errors:.3f}")
+
+
+def tune_test_minimizer(minimizer_to_test: Callable, tune_functions, test_functions, n_jobs=1, n_tuning_trials: int = 50):
     """
     Test the minimizer with a set of test functions.
 
     :return: None
     """
-    best_params = tune_minimizer(minimizer_to_test=minimizer_to_test, tune_functions=tune_functions, n_trials=n_tuning_trials)
+    best_params = tune_minimizer(minimizer_to_test=minimizer_to_test, tune_functions=tune_functions, n_jobs=n_jobs, n_trials=n_tuning_trials)
     print("Best parameters found:", best_params)
     log_rel_errors, time_elapsed = multivariate_model_runner(minimizer=minimizer_to_test,
                                                              func_optima_tuples=test_functions,
+                                                             n_jobs=n_jobs,
                                                              **best_params)
     print(f"Test results: mean log rel errors = time elapsed = {time_elapsed:.2f}s, mean log rel errors {log_rel_errors:.3f}")
 
@@ -309,10 +326,11 @@ def benchmark_optimizer(optimizer: Callable,
                        max_allowed_time_per_function: float = MAX_ALLOWED_PROBLEM_TIME,
                        max_allowed_rolling_average_function_time: float = MAX_ALLOWED_ROLLING_AVERAGE_FUNCTION_TIME):
     # Tune the optimizer
-    objective = make_optuna_objective(optimizer, func_optima_tuples=tune_functions, 
-        n_jobs=n_jobs,
-        max_allowed_time_per_function=max_allowed_time_per_function, 
-        max_allowed_rolling_average_function_time=max_allowed_rolling_average_function_time)
+    objective = make_optuna_objective(optimizer,
+                                      func_optima_tuples=tune_functions,
+                                      n_jobs=n_jobs,
+                                      max_allowed_time_per_function=max_allowed_time_per_function,
+                                      max_allowed_rolling_average_function_time=max_allowed_rolling_average_function_time)
     study = optuna.create_study(direction="minimize")
     start_time = time.time()
     study.optimize(objective, n_trials=n_tuning_trials)
@@ -389,7 +407,11 @@ def benchmark_all_optimizers(n_tune_functions: int = 2, n_test_functions: int = 
         print(f"[{i+1}/{len(optimizer_names)}] Testing {name}...")
         
         try:
-            log_rel_error, time_elapsed, best_params = benchmark_optimizer(optimizer=optimizer, test_functions=test_functions, tune_functions=tune_functions, n_tuning_trials=n_tuning_trials, n_jobs=n_jobs, 
+            log_rel_error, time_elapsed, best_params = benchmark_optimizer(optimizer=optimizer,
+                                                                           test_functions=test_functions,
+                                                                           tune_functions=tune_functions,
+                                                                           n_tuning_trials=n_tuning_trials,
+                                                                           n_jobs=n_jobs,
             max_allowed_time_per_function=max_allowed_time_per_function, 
             max_allowed_rolling_average_function_time=max_allowed_rolling_average_function_time)
             
@@ -493,16 +515,17 @@ def cli():
 
 
 @cli.command()
-@click.option('--n-trials', default=50, help='Number of trials for hyperparameter tuning')
+@click.option('--n-tuning-trials', default=50, help='Number of trials for hyperparameter tuning')
 @click.option('--optimizer', type=click.Choice(list(OPTIMIZERS.keys())), 
               default='minimize_pso', help='Which optimizer to tune')
-@click.option('--n-dims', default=2, help='Number of dimensions for the test functions')              
 @click.option('--n-tune-functions', default=2, help='Number of functions to use for tuning')
-def tune(n_trials, optimizer, n_tune_functions, n_dims):
+@click.option('--n-dims', default=2, help='Number of dimensions for the test functions')
+@click.option('--n-jobs', default=1, help='Number of parallel jobs to use')
+def tune(n_tuning_trials, optimizer, n_tune_functions, n_dims, n_jobs):
     """Tune hyperparameters for a specific optimizer."""
     minimizer_func = OPTIMIZERS[optimizer]
     tune_functions = generate_test_functions(n_samples=n_tune_functions, n_dims=n_dims)
-    best_params = tune_minimizer(minimizer_to_test=minimizer_func, tune_functions=tune_functions, n_trials=n_trials)
+    best_params = tune_minimizer(minimizer_to_test=minimizer_func, n_jobs=n_jobs, tune_functions=tune_functions, n_trials=n_tuning_trials)
     
     click.echo(f"Best parameters found for {optimizer}:")
     for param, value in best_params.items():
@@ -517,13 +540,28 @@ def tune(n_trials, optimizer, n_tune_functions, n_dims):
 @click.option('--n-tuning-trials', default=50, help='Number of trials for hyperparameter tuning')
 @click.option('--n-tune-functions', default=2, help='Number of functions to use for tuning')
 @click.option('--n-test-functions', default=2, help='Number of functions to use for testing')
-def test(optimizer, n_tuning_trials, n_tune_functions, n_test_functions, n_dims):
+@click.option('--n-jobs', default=1, help='Number of parallel jobs to use')
+def tune_test(optimizer, n_tuning_trials, n_tune_functions, n_test_functions, n_dims, n_jobs):
     """Test a specific optimizer with tuned parameters."""
     minimizer_func = OPTIMIZERS[optimizer]
     tune_functions = generate_test_functions(n_samples=n_tune_functions, n_dims=n_dims)
     test_functions = generate_test_functions(n_samples=n_test_functions, n_dims=n_dims)
     click.echo(f"Testing {optimizer}...")
-    test_minimizer(minimizer_to_test=minimizer_func, tune_functions=tune_functions, test_functions=test_functions, n_tuning_trials=n_tuning_trials)
+    tune_test_minimizer(minimizer_to_test=minimizer_func, tune_functions=tune_functions, test_functions=test_functions, n_tuning_trials=n_tuning_trials, n_jobs=n_jobs)
+
+@cli.command()
+@click.option('--optimizer', type=click.Choice(list(OPTIMIZERS.keys())), 
+              default='minimize_pso', help='Which optimizer to test')
+@click.option('--n-dims', default=2, help='Number of dimensions for the test functions')                      
+@click.option('--n-test-functions', default=2, help='Number of functions to use for testing')
+@click.option('--n-jobs', default=1, help='Number of parallel jobs to use')
+def test(optimizer, n_test_functions, n_dims, n_jobs):
+    """Test a specific optimizer with tuned parameters."""
+    minimizer_func = OPTIMIZERS[optimizer]
+    test_functions = generate_test_functions(n_samples=n_test_functions, n_dims=n_dims)
+    click.echo(f"Testing {optimizer}...")
+    test_minimizer(minimizer_to_test=minimizer_func, test_functions=test_functions, n_jobs=n_jobs)
+
 
 
 @cli.command()
@@ -545,10 +583,11 @@ def list_optimizers():
 @click.option('--save-fig', default=None, help='Path to save the plot')
 @click.option('--save-csv', default=None, help='Path to save the CSV file')
 @click.option('--n-dims', default=2, help='Number of dimensions for the test functions')
+@click.option('--n-jobs', default=1, help='Number of parallel jobs to use')
 @click.option('--seed', default=None, type=int, help='Random seed for reproducibility')
 @click.option('--optimizers', multiple=True, type=click.Choice(list(OPTIMIZERS.keys())), 
               help='Specific optimizers to test (can specify multiple times). If not specified, test all optimizers.')
-def benchmark(n_tune_functions, n_test_functions, n_tuning_trials, save_fig, save_csv, n_dims, seed, optimizers):
+def benchmark(n_tune_functions, n_test_functions, n_tuning_trials, save_fig, save_csv, n_dims, n_jobs, seed, optimizers):
     """Benchmark optimizers and create a scatter plot."""
     # Convert tuple to list, or None if empty
     optimizer_list = list(optimizers) if optimizers else None
@@ -557,6 +596,7 @@ def benchmark(n_tune_functions, n_test_functions, n_tuning_trials, save_fig, sav
                              n_test_functions=n_test_functions,
                              n_tuning_trials=n_tuning_trials,
                              n_dims=n_dims,
+                             n_jobs=n_jobs,
                              save_fig=save_fig,
                              save_csv=save_csv,
                              seed=seed,

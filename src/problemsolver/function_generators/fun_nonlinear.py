@@ -1,8 +1,7 @@
 import numpy as np
 from typing import Callable
-
-import numpy as np
 import matplotlib.pyplot as plt
+from problemsolver.function_generators import ProblemFunction
 
 
 def generate_affine_transformation(n_dims: int):
@@ -16,17 +15,32 @@ def generate_affine_transformation(n_dims: int):
     return A_mat, shift
 
 
-def generate_transformed_function(func_z: Callable[[np.ndarray], float], optimum_z: np.ndarray):
-    n_dims = len(optimum_z)
-    A_mat, shift = generate_affine_transformation(n_dims)
-    optimum_x = np.linalg.solve(A_mat, optimum_z) + shift
-
-    def transformed_func(x: list[float]) -> float:
+class TransformedFunction(ProblemFunction):
+    """A callable class that represents a transformed optimization function."""
+    
+    def __init__(self, func_z: Callable[[np.ndarray], float], optimum_z: np.ndarray):
+        # In this context, z is the space of the original function (e.g. optimum may be at 0,0); x is the transformed space
+        self.func_z = func_z
+        self.optimum_z = optimum_z
+        self.n_dims = len(optimum_z)
+        self.A_mat, self.shift = generate_affine_transformation(self.n_dims)
+        self.optimum_x = np.linalg.solve(self.A_mat, self.optimum_z) + self.shift
+        self.optimizer: Callable|None = None
+    
+    def __call__(self, x: np.ndarray) -> float:
+        """Evaluate the transformed function at point x in the transformed space."""
         x = np.asarray(x)
-        z = A_mat @ (x - shift)
-        return func_z(z)
+        z = self.A_mat @ (x - self.shift)
+        return self.func_z(z)
 
-    return transformed_func, optimum_x
+
+def generate_transformed_function(func_z: Callable[[np.ndarray], float], optimum_z: np.ndarray):
+    """
+    Legacy function for backward compatibility.
+    Returns a TransformedFunction instance and its optimum.
+    """
+    transformed_func = TransformedFunction(func_z, optimum_z)
+    return transformed_func, transformed_func.optimum_x
 
 
 def rastrigin(x):
@@ -69,7 +83,6 @@ def keane_bump(z: np.ndarray) -> float:
     return bump_val + bias
 
 
-
 FUNCTIONS_AND_OPTIMA = {
     "rastrigin": (rastrigin, lambda n_dims: np.zeros(n_dims)),
     "sphere": (sphere, lambda n_dims: np.zeros(n_dims)),
@@ -106,7 +119,6 @@ def visualize_function(func_x: Callable, optimum: np.ndarray = None, title: str 
     plt.colorbar()
     plt.title(title)
     plt.show()
-    
 
 
 if __name__ == "__main__":
@@ -120,6 +132,3 @@ if __name__ == "__main__":
         print(f"Visualizing {func_name}")
         print(f"Optimum value : {func_z(optimum): .3f} at {optimum}")
         visualize_function(func_z, optimum=optimum, title=f"{func_name} Function")
-
-
-
