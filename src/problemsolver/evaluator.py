@@ -4,6 +4,7 @@ from problemsolver.utils import Interval
 from problemsolver.function_generators import fun_nonlinear as fun_generator
 from problemsolver.function_generators import ProblemFunction
 import optuna
+import cloudpickle
 import multiprocessing as mp
 import signal
 import time

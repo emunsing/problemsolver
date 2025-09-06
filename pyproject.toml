@@ -16,7 +16,7 @@ openai = "*"
 langchain = {version = "*", extras = ["openai"]}
 langchain-openai = "*"
 optuna = "*"
-
+cloudpickle = "*"
 
 [build-system]
 requires = ["poetry-core"]
