@@ -4,7 +4,6 @@ from problemsolver.utils import Interval
 from problemsolver.function_generators import fun_nonlinear as fun_generator
 from problemsolver.function_generators import ProblemFunction
 import optuna
-import cloudpickle
 import multiprocessing as mp
 import signal
 import time
@@ -213,8 +212,12 @@ def multivariate_model_runner(minimizer: Callable,
         try:
             pool.terminate()
             pool.join()
-        except Exception:
-            # Ignore any errors during cleanup
+        except (OSError, BrokenPipeError, ConnectionResetError):
+            # Ignore common multiprocessing cleanup errors
+            pass
+        except Exception as e:
+            # Log other errors but don't let them propagate
+            print(f"Warning: Error during pool cleanup: {e}")
             pass
     
     time_elapsed = time.time() - time_start

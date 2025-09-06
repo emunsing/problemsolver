@@ -12,6 +12,7 @@ import sys
 import csv
 import random
 import pathlib
+import importlib.util
 from typing import List, Dict, Tuple, Optional, Callable
 import numpy as np
 
@@ -23,6 +24,8 @@ from problemsolver.utils import check_optimizer_annotations, check_optimizer_fun
 from problemsolver.evaluator import benchmark_optimizer, generate_test_functions, MAX_ALLOWED_PROBLEM_TIME, MAX_ALLOWED_ROLLING_AVERAGE_FUNCTION_TIME
 import re
 import unicodedata
+
+
 
 def to_camel_case(text: str) -> str:
     # Convert text like "convert THIS_to–camelCASE!" to "ConvertThisToCamelCase"
@@ -70,6 +73,11 @@ class OptimizerGenerator:
         # Ensure directories exist
         os.makedirs(self.code_output_dir_all, exist_ok=True)
         os.makedirs(self.code_output_dir_performant, exist_ok=True)
+        
+        # Clean up old temp files on initialization
+        temp_dir = pathlib.Path(__file__).parent / "data" / "temp"
+        if temp_dir.exists():
+            self._cleanup_old_temp_files(temp_dir)
         
 
     @staticmethod
@@ -247,16 +255,68 @@ Please fix the error and return the corrected Python function. Ensure it follows
         
         filtered_code = '\n'.join(filtered_lines)
 
-        # Create a function from the code
-        # Create a namespace with necessary imports
-        namespace = {
-            'np': np,
-            'Annotated': Annotated,
-            'Interval': Interval
-        }
-        exec(filtered_code, namespace)
-        optimizer_func = namespace['minimize']
+        # Create a pickleable function by writing to a file in the package hierarchy
+        optimizer_func = OptimizerGenerator._create_package_function(filtered_code)
         return optimizer_func, filtered_code
+
+    @staticmethod
+    def _create_package_function(code: str) -> Callable:
+        """Create a pickleable function by writing code to a file in the package hierarchy."""
+        import uuid
+        import importlib
+        
+        # Create a unique module name
+        module_name = f"optimizer_{uuid.uuid4().hex[:8]}"
+        
+        # Get the path to the temp directory in the package
+        temp_dir = pathlib.Path(__file__).parent / "data" / "temp"
+        temp_dir.mkdir(exist_ok=True)
+        
+        # Clean up old optimizer files (keep only __init__.py)
+        OptimizerGenerator._cleanup_old_temp_files(temp_dir)
+        
+        # Create the file path
+        file_path = temp_dir / f"{module_name}.py"
+        
+        # Write the code to the file with proper imports
+        full_code = f"""import numpy as np
+from typing import Annotated
+from problemsolver.utils import Interval
+
+{code}
+"""
+        
+        with open(file_path, 'w') as f:
+            f.write(full_code)
+        
+        try:
+            # Import the module using the full package path
+            full_module_name = f"problemsolver.data.temp.{module_name}"
+            spec = importlib.util.spec_from_file_location(full_module_name, file_path)
+            temp_module = importlib.util.module_from_spec(spec)
+            
+            # Register the module in sys.modules
+            sys.modules[full_module_name] = temp_module
+            
+            # Execute the module
+            spec.loader.exec_module(temp_module)
+            
+            # Get the minimize function from the module
+            optimizer_func = temp_module.minimize
+            
+            # Store the file path and module name for cleanup
+            optimizer_func._temp_file_path = str(file_path)
+            optimizer_func._temp_module_name = full_module_name
+            
+            return optimizer_func
+            
+        except Exception as e:
+            # Clean up the file if there was an error
+            try:
+                file_path.unlink()
+            except:
+                pass
+            raise e
 
     def validate_optimizer_code(self, optimizer_func: Callable, raw_code: str, original_prompt: str, max_iterations: int = 5) -> Tuple[bool, Optional[Callable], str, str]:
         """Validate the optimizer function through multiple iterations of debugging."""
@@ -281,8 +341,12 @@ Please fix the error and return the corrected Python function. Ensure it follows
 
         for iteration in range(max_iterations):
             try:
-                response = self.llm.invoke(messages)
-                optimizer_func, raw_code = self.extract_func_and_code_from_response(response.content)
+                # response = self.llm.invoke(messages)
+                # optimizer_func, raw_code = self.extract_func_and_code_from_response(response.content)
+                with open("/Users/eric/src/problemsolver/src/problemsolver/optimizers/bioinspired/firefly.py", "r") as f:
+                    loaded_text = f.read()
+                optimizer_func, raw_code = self.extract_func_and_code_from_response(loaded_text)
+
 
                 # Validate and debug
                 success, final_func, final_code, error_msg = self.validate_optimizer_code(optimizer_func,
@@ -307,27 +371,65 @@ Please fix the error and return the corrected Python function. Ensure it follows
 
     def benchmark_new_optimizer(self, optimizer_func: Callable, optimizer_name: str) -> Optional[Dict]:
         """Benchmark the new optimizer and return performance metrics."""
-        # Generate test functions
-        tune_functions = generate_test_functions(n_samples=self.n_tune_functions, n_dims=self.n_dims)
-        test_functions = generate_test_functions(n_samples=self.n_test_functions, n_dims=self.n_dims)
+        try:
+            # Generate test functions
+            tune_functions = generate_test_functions(n_samples=self.n_tune_functions, n_dims=self.n_dims)
+            test_functions = generate_test_functions(n_samples=self.n_test_functions, n_dims=self.n_dims)
 
-        # Run benchmark with the function
-        log_rel_error, time_elapsed, best_params = benchmark_optimizer(
-            optimizer=optimizer_func,
-            test_functions=test_functions,
-            tune_functions=tune_functions,
-            n_tuning_trials=self.n_tuning_trials,
-            n_jobs=self.n_jobs,
-            max_allowed_time_per_function=self.max_allowed_time_per_function,
-            max_allowed_rolling_average_function_time=self.max_allowed_rolling_average_function_time
-        )
+            # Run benchmark with the function
+            log_rel_error, time_elapsed, best_params = benchmark_optimizer(
+                optimizer=optimizer_func,
+                test_functions=test_functions,
+                tune_functions=tune_functions,
+                n_tuning_trials=self.n_tuning_trials,
+                n_jobs=self.n_jobs,
+                max_allowed_time_per_function=self.max_allowed_time_per_function,
+                max_allowed_rolling_average_function_time=self.max_allowed_rolling_average_function_time
+            )
 
-        return {
-            'name': optimizer_name,
-            'log_rel_error': log_rel_error,
-            'time_elapsed': time_elapsed,
-            'best_params': best_params
-        }
+            return {
+                'name': optimizer_name,
+                'log_rel_error': log_rel_error,
+                'time_elapsed': time_elapsed,
+                'best_params': best_params
+            }
+        except Exception as e:
+            print(f"Benchmarking failed: {e}")
+            return None
+        finally:
+            # Clean up temporary file if it exists
+            self._cleanup_package_file(optimizer_func)
+
+    @staticmethod
+    def _cleanup_old_temp_files(temp_dir: pathlib.Path) -> None:
+        """Clean up old optimizer files from the temp directory, keeping only __init__.py."""
+        try:
+            for file_path in temp_dir.glob("optimizer_*.py"):
+                try:
+                    file_path.unlink()
+                except (OSError, FileNotFoundError):
+                    # Ignore errors if file is already deleted or doesn't exist
+                    pass
+        except Exception:
+            # Ignore any errors during cleanup
+            pass
+
+    @staticmethod
+    def _cleanup_package_file(optimizer_func: Callable) -> None:
+        """Clean up temporary file and module associated with the optimizer function."""
+        if hasattr(optimizer_func, '_temp_file_path'):
+            try:
+                os.unlink(optimizer_func._temp_file_path)
+            except (OSError, FileNotFoundError):
+                # Ignore errors if file is already deleted or doesn't exist
+                pass
+        
+        # Remove the module from sys.modules
+        if hasattr(optimizer_func, '_temp_module_name'):
+            module_name = optimizer_func._temp_module_name
+            if module_name in sys.modules:
+                del sys.modules[module_name]
+
 
     @staticmethod
     def load_performance_file(performance_file: os.PathLike, empty_ok: bool = False) -> List[Dict]:

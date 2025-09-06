@@ -20,12 +20,12 @@ class TransformedFunction(ProblemFunction):
     
     def __init__(self, func_z: Callable[[np.ndarray], float], optimum_z: np.ndarray):
         # In this context, z is the space of the original function (e.g. optimum may be at 0,0); x is the transformed space
-        self.func_z = func_z
+        self.func_z = func_z  # This will always be loaded from a module
         self.optimum_z = optimum_z
         self.n_dims = len(optimum_z)
         self.A_mat, self.shift = generate_affine_transformation(self.n_dims)
         self.optimum_x = np.linalg.solve(self.A_mat, self.optimum_z) + self.shift
-        self.optimizer: Callable|None = None
+        self.optimizer: Callable|None = None  # This code may be assigned either to something which is imported, or created on-the-fly from an LLM response
     
     def __call__(self, x: np.ndarray) -> float:
         """Evaluate the transformed function at point x in the transformed space."""
