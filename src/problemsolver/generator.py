@@ -39,6 +39,7 @@ def to_camel_case(text: str) -> str:
 
 class OptimizerGenerator:
     def __init__(self, api_key: str,
+                 api_base: str | None = None,
                  model_name: str = "o4-mini",
                  n_tune_functions: int = 10,
                  n_test_functions: int = 20,
@@ -51,6 +52,7 @@ class OptimizerGenerator:
         """Initialize the optimizer generator."""
         self.llm = ChatOpenAI(
             openai_api_key=api_key,
+            openai_api_base=api_base,
             model_name=model_name,
         )
         self.n_tune_functions = n_tune_functions
@@ -210,26 +212,22 @@ Please fix the error and return the corrected Python function. Ensure it follows
         if "```python" in response:
             start = response.find("```python") + 9
             end = response.find("```", start)
-            if end != -1:
-                initial_code = response[start:end].strip()
-        else:
-            # If no code block, try to find function definition
-            lines = response.split('\n')
-            code_lines = []
-            in_function = False
+            if end == -1:
+                response = response[start:].strip()
+            else:
+                response = response[start:end].strip()
 
-            for line in lines:
-                if line.strip().startswith('import ') or line.strip().startswith('from '):
-                    code_lines.append(line)
-                    continue
-                if line.strip().startswith('def minimize('):
-                    in_function = True
-                if in_function:
-                    code_lines.append(line)
-                    if line.strip().endswith('return') or (line.strip().startswith('return') and 'return' in line):
-                        break
+        lines = response.split('\n')
+        code_lines = []
 
-            initial_code = '\n'.join(code_lines) if code_lines else response
+        for line in lines:
+            if line == "from __future__ import annotations":
+                continue
+            elif line.strip().startswith("Interval ="):
+                continue
+            code_lines.append(line)
+
+        initial_code = '\n'.join(code_lines) if code_lines else response
 
         # Filter out Interval class definitions
         filtered_lines = []
@@ -341,11 +339,11 @@ from problemsolver.utils import Interval
 
         for iteration in range(max_iterations):
             try:
-                # response = self.llm.invoke(messages)
-                # optimizer_func, raw_code = self.extract_func_and_code_from_response(response.content)
-                with open("/Users/eric/src/problemsolver/src/problemsolver/optimizers/bioinspired/firefly.py", "r") as f:
-                    loaded_text = f.read()
-                optimizer_func, raw_code = self.extract_func_and_code_from_response(loaded_text)
+                response = self.llm.invoke(messages)
+                optimizer_func, raw_code = self.extract_func_and_code_from_response(response.content)
+                # with open("/Users/eric/src/problemsolver/src/problemsolver/optimizers/bioinspired/firefly.py", "r") as f:
+                #     loaded_text = f.read()
+                # optimizer_func, raw_code = self.extract_func_and_code_from_response(loaded_text)
 
 
                 # Validate and debug
@@ -852,17 +850,19 @@ Create a complete, runnable Python function that implements your blended, novel 
 
 @click.command()
 @click.option('--api-key', required=True, help='OpenAI API key')
+@click.option('--api-base', default=None, help='OpenAI API base URL')
 @click.option('--model', default='o4-mini', help='OpenAI model to use')
 @click.option('--n-pareto-attempts', default=5, type=int, help='Number of attempts at pareto improvement')
 @click.option('--n-tune-functions', default=10, type=int, help='Number of functions for tuning')
 @click.option('--n-test-functions', default=20, type=int, help='Number of functions for testing')
 @click.option('--n-tuning-trials', default=100, type=int, help='Number of tuning trials')
 @click.option('--n-dims', default=5, type=int, help='Number of dimensions for test functions')
-def main(api_key: str, model: str, n_pareto_attempts: int, n_tune_functions: int,
+def main(api_key: str, api_base: str, model: str, n_pareto_attempts: int, n_tune_functions: int,
          n_test_functions: int, n_tuning_trials: int, n_dims: int):
     """Generate new optimizers using LLMs."""
     generator = OptimizerGenerator(
         api_key=api_key,
+        api_base=api_base,
         model_name=model,
         n_tune_functions=n_tune_functions,
         n_test_functions=n_test_functions,
@@ -894,17 +894,19 @@ def cli():
 
 @cli.command()
 @click.option('--api-key', required=True, help='OpenAI API key')
+@click.option('--api-base', default=None, help='OpenAI API base URL')
 @click.option('--model', default='o4-mini', help='OpenAI model to use')
 @click.option('--n-pareto-attempts', default=5, type=int, help='Number of attempts at pareto improvement')
 @click.option('--n-tune-functions', default=10, type=int, help='Number of functions for tuning')
 @click.option('--n-test-functions', default=20, type=int, help='Number of functions for testing')
 @click.option('--n-tuning-trials', default=100, type=int, help='Number of tuning trials')
 @click.option('--n-dims', default=5, type=int, help='Number of dimensions for test functions')
-def inspire(api_key: str, model: str, n_pareto_attempts: int, n_tune_functions: int,
+def inspire(api_key: str, api_base: str, model: str, n_pareto_attempts: int, n_tune_functions: int,
          n_test_functions: int, n_tuning_trials: int, n_dims: int):
     """Generate new optimizers using LLMs."""
     generator = OptimizerGenerator(
         api_key=api_key,
+        api_base=api_base,
         model_name=model,
         n_tune_functions=n_tune_functions,
         n_test_functions=n_test_functions,
@@ -931,6 +933,7 @@ def inspire(api_key: str, model: str, n_pareto_attempts: int, n_tune_functions: 
 
 @cli.command()
 @click.option('--api-key', required=True, help='OpenAI API key')
+@click.option('--api-base', default=None, help='OpenAI API base URL')
 @click.option('--model', default='o4-mini', help='OpenAI model to use')
 @click.option('--start-index', default=0, type=int, help='Index to start sweeping from')
 @click.option('--n-pareto-attempts', default=5, type=int, help='Number of attempts at pareto improvement')
@@ -944,12 +947,13 @@ def inspire(api_key: str, model: str, n_pareto_attempts: int, n_tune_functions: 
 @click.option('--max-allowed-rolling-average-function-time', default=MAX_ALLOWED_ROLLING_AVERAGE_FUNCTION_TIME, type=float, help='Maximum allowed rolling average function time')
 @click.option('--output-dir', default="data/output", help='Output directory')
 @click.option('--ideas-file', default="data/emergent_optimization_ideas.txt", help='File containing emergent optimization ideas')
-def sweep(api_key: str, model: str, start_index: int , n_pareto_attempts: int, n_tune_functions: int,
+def sweep(api_key: str, api_base: str, model: str, start_index: int , n_pareto_attempts: int, n_tune_functions: int,
          n_test_functions: int, n_tuning_trials: int, n_dims: int, output_dir: str, ideas_file: str, pareto_rtol: float = 0.0, n_jobs: int = 1, max_allowed_time_per_function: float = MAX_ALLOWED_PROBLEM_TIME, max_allowed_rolling_average_function_time: float = MAX_ALLOWED_ROLLING_AVERAGE_FUNCTION_TIME):
     """Generate new optimizers using LLMs, sweeping through all inspirations."""
 
     generator = OptimizerGenerator(
         api_key=api_key,
+        api_base=api_base,
         model_name=model,
         n_jobs=n_jobs,
         max_allowed_time_per_function=max_allowed_time_per_function,
@@ -977,6 +981,7 @@ def sweep(api_key: str, model: str, start_index: int , n_pareto_attempts: int, n
 
 @cli.command()
 @click.option('--api-key', required=True, help='OpenAI API key')
+@click.option('--api-base', default=None, help='OpenAI API base URL')
 @click.option('--model', default='o4-mini', help='OpenAI model to use')
 @click.option('--start-index', default=0, type=int, help='Index to start sweeping from')
 @click.option('--n-pareto-attempts', default=5, type=int, help='Number of attempts at pareto improvement')
@@ -991,11 +996,12 @@ def sweep(api_key: str, model: str, start_index: int , n_pareto_attempts: int, n
 @click.option('--output-dir', default="data/output", help='Output directory')
 @click.option('--ideas-file', default="data/emergent_optimization_ideas.txt", help='File containing emergent optimization ideas')
 @click.option('--n-blend-examples', default=3, type=int, help='Number of code examples to blend for inspiration')
-def blend_sweep(api_key: str, model: str, start_index: int , n_pareto_attempts: int, n_tune_functions: int,
+def blend_sweep(api_key: str, api_base: str, model: str, start_index: int , n_pareto_attempts: int, n_tune_functions: int,
          n_test_functions: int, n_tuning_trials: int, n_dims: int, output_dir: str, ideas_file: str, pareto_rtol: float = 0.0, n_blend_examples: int = 3, n_jobs: int = 1, max_allowed_time_per_function: float = MAX_ALLOWED_PROBLEM_TIME, max_allowed_rolling_average_function_time: float = MAX_ALLOWED_ROLLING_AVERAGE_FUNCTION_TIME):
     """Generate new optimizers using LLMs, sweeping through all inspirations and blending with existing performant optimizers."""
     generator = BlendedOptimizerGenerator(
         api_key=api_key,
+        api_base=api_base,
         model_name=model,
         n_tune_functions=n_tune_functions,
         n_test_functions=n_test_functions,
