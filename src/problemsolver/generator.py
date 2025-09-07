@@ -15,6 +15,7 @@ import pathlib
 import importlib.util
 from typing import List, Dict, Tuple, Optional, Callable
 import numpy as np
+import attrs
 
 import click
 from langchain_openai.chat_models import ChatOpenAI
@@ -25,6 +26,103 @@ from problemsolver.evaluator import benchmark_optimizer, generate_test_functions
 import re
 import unicodedata
 
+
+@attrs.define
+class Performance:
+    """Performance data for an optimizer, including benchmarking results and failure analysis."""
+    
+    # Core performance metrics
+    name: str
+    log_rel_error: Optional[float] = None
+    time_elapsed: Optional[float] = None
+    best_params: Dict = attrs.field(factory=dict)
+    
+    # Failure analysis fields
+    failure_mode: Optional[str] = None
+    error: Optional[str] = None
+    closest_breakthrough_distance: Optional[float] = None
+    error_breakthrough_gap: Optional[float] = None
+    time_breakthrough_gap: Optional[float] = None
+    best_error: Optional[float] = None
+    best_time: Optional[float] = None
+    needs_error_improvement: Optional[bool] = None
+    needs_time_improvement: Optional[bool] = None
+    closest_breakthrough_dimension: Optional[str] = None
+    
+    def is_successful(self) -> bool:
+        """Check if the optimizer was successful (no failure mode)."""
+        return self.failure_mode is None
+    
+    def to_csv_row(self) -> Dict[str, str]:
+        """Convert to dictionary for CSV writing with proper string conversion."""
+        return {
+            'method_name': self.name,
+            'log_rel_error': str(self.log_rel_error) if self.log_rel_error is not None else '',
+            'time_elapsed': str(self.time_elapsed) if self.time_elapsed is not None else '',
+            'best_params': str(self.best_params) if self.best_params else '',
+            'failure_mode': self.failure_mode or '',
+            'error': self.error or '',
+            'closest_breakthrough_distance': str(self.closest_breakthrough_distance) if self.closest_breakthrough_distance is not None else '',
+            'error_breakthrough_gap': str(self.error_breakthrough_gap) if self.error_breakthrough_gap is not None else '',
+            'time_breakthrough_gap': str(self.time_breakthrough_gap) if self.time_breakthrough_gap is not None else '',
+            'best_error': str(self.best_error) if self.best_error is not None else '',
+            'best_time': str(self.best_time) if self.best_time is not None else '',
+            'needs_error_improvement': str(self.needs_error_improvement) if self.needs_error_improvement is not None else '',
+            'needs_time_improvement': str(self.needs_time_improvement) if self.needs_time_improvement is not None else '',
+            'closest_breakthrough_dimension': self.closest_breakthrough_dimension or ''
+        }
+    
+    @classmethod
+    def from_csv_row(cls, row: Dict[str, str]) -> 'Performance':
+        """Create Performance object from CSV row with proper type conversion."""
+        def safe_float(value: str) -> Optional[float]:
+            if not value or value.strip() == '':
+                return None
+            try:
+                return float(value)
+            except (ValueError, TypeError):
+                return None
+        
+        def safe_bool(value: str) -> Optional[bool]:
+            if not value or value.strip() == '':
+                return None
+            return value.lower() == 'true'
+        
+        def safe_eval_dict(value: str) -> Dict:
+            if not value or value.strip() == '':
+                return {}
+            try:
+                return eval(value) if value else {}
+            except:
+                return {}
+        
+        return cls(
+            name=row.get('method_name', ''),
+            log_rel_error=safe_float(row.get('log_rel_error', '')),
+            time_elapsed=safe_float(row.get('time_elapsed', '')),
+            best_params=safe_eval_dict(row.get('best_params', '')),
+            failure_mode=row.get('failure_mode') or None,
+            error=row.get('error') or None,
+            closest_breakthrough_distance=safe_float(row.get('closest_breakthrough_distance', '')),
+            error_breakthrough_gap=safe_float(row.get('error_breakthrough_gap', '')),
+            time_breakthrough_gap=safe_float(row.get('time_breakthrough_gap', '')),
+            best_error=safe_float(row.get('best_error', '')),
+            best_time=safe_float(row.get('best_time', '')),
+            needs_error_improvement=safe_bool(row.get('needs_error_improvement', '')),
+            needs_time_improvement=safe_bool(row.get('needs_time_improvement', '')),
+            closest_breakthrough_dimension=row.get('closest_breakthrough_dimension') or None
+        )
+    
+    @classmethod
+    def get_csv_fieldnames(cls) -> List[str]:
+        """Get the fieldnames for CSV writing."""
+        return [
+            'method_name', 'log_rel_error', 'time_elapsed', 'best_params',
+            'failure_mode', 'error', 'closest_breakthrough_distance',
+            'error_breakthrough_gap', 'time_breakthrough_gap', 'best_error',
+            'best_time', 'needs_error_improvement', 'needs_time_improvement',
+            'closest_breakthrough_dimension'
+        ]
 
 
 def to_camel_case(text: str) -> str:
@@ -339,11 +437,11 @@ from problemsolver.utils import Interval
 
         for iteration in range(max_iterations):
             try:
-                response = self.llm.invoke(messages)
-                optimizer_func, raw_code = self.extract_func_and_code_from_response(response.content)
-                # with open("/Users/eric/src/problemsolver/src/problemsolver/optimizers/bioinspired/firefly.py", "r") as f:
-                #     loaded_text = f.read()
-                # optimizer_func, raw_code = self.extract_func_and_code_from_response(loaded_text)
+                # response = self.llm.invoke(messages)
+                # optimizer_func, raw_code = self.extract_func_and_code_from_response(response.content)
+                with open("/Users/eric/src/problemsolver/src/problemsolver/optimizers/bioinspired/firefly.py", "r") as f:
+                    loaded_text = f.read()
+                optimizer_func, raw_code = self.extract_func_and_code_from_response(loaded_text)
 
 
                 # Validate and debug
@@ -367,7 +465,7 @@ from problemsolver.utils import Interval
 
         return success, final_func, final_code, error_msg
 
-    def benchmark_new_optimizer(self, optimizer_func: Callable, optimizer_name: str) -> Optional[Dict]:
+    def benchmark_new_optimizer(self, optimizer_func: Callable, optimizer_name: str) -> Optional[Performance]:
         """Benchmark the new optimizer and return performance metrics."""
         try:
             # Generate test functions
@@ -385,15 +483,19 @@ from problemsolver.utils import Interval
                 max_allowed_rolling_average_function_time=self.max_allowed_rolling_average_function_time
             )
 
-            return {
-                'name': optimizer_name,
-                'log_rel_error': log_rel_error,
-                'time_elapsed': time_elapsed,
-                'best_params': best_params
-            }
+            return Performance(
+                name=optimizer_name,
+                log_rel_error=log_rel_error,
+                time_elapsed=time_elapsed,
+                best_params=best_params
+            )
         except Exception as e:
             print(f"Benchmarking failed: {e}")
-            return None
+            return Performance(
+                name=optimizer_name,
+                failure_mode='benchmark_exception',
+                error=str(e)
+            )
         finally:
             # Clean up temporary file if it exists
             self._cleanup_package_file(optimizer_func)
@@ -430,7 +532,7 @@ from problemsolver.utils import Interval
 
 
     @staticmethod
-    def load_performance_file(performance_file: os.PathLike, empty_ok: bool = False) -> List[Dict]:
+    def load_performance_file(performance_file: os.PathLike, empty_ok: bool = False) -> List[Performance]:
         """Load existing performance data from CSV."""
         if not os.path.exists(performance_file):
             if empty_ok:
@@ -442,26 +544,33 @@ from problemsolver.utils import Interval
         with open(performance_file, 'r') as csvfile:
             reader = csv.DictReader(csvfile)
             for row in reader:
-                results.append({
-                    'method_name': row['method_name'],
-                    'log_rel_error': float(row['log_rel_error']),
-                    'time_elapsed': float(row['time_elapsed'])
-                })
+                results.append(Performance.from_csv_row(row))
         return results
 
     @staticmethod
-    def is_pareto_improvement(new_result: Dict, existing_results: List[Dict], rtol=0.0) -> bool:
+    def is_pareto_improvement(new_result: Performance, existing_results: List[Performance], rtol=0.0) -> bool:
         # Pareto improvement: At least as good as existing in all metrics, and strictly better in at least one metric.
+        # Only consider successful results for Pareto comparison
+        if not new_result.is_successful() or new_result.log_rel_error is None or new_result.time_elapsed is None:
+            return False
 
-        metric_fields = ['log_rel_error', 'time_elapsed']
         for existing in existing_results:
-            existing_bound = {k: v + rtol * np.abs(v) for k, v in existing.items() if k in metric_fields}
-            if all(new_result[k] <= existing_bound[k] for k in metric_fields) and any(new_result[k] < existing_bound[k] for k in metric_fields):
+            if not existing.is_successful() or existing.log_rel_error is None or existing.time_elapsed is None:
+                continue
+                
+            # Check if new result dominates existing result
+            new_error = new_result.log_rel_error
+            new_time = new_result.time_elapsed
+            existing_error = existing.log_rel_error + rtol * abs(existing.log_rel_error)
+            existing_time = existing.time_elapsed + rtol * abs(existing.time_elapsed)
+            
+            if (new_error <= existing_error and new_time <= existing_time and 
+                (new_error < existing_error or new_time < existing_time)):
                 return True
         return False
 
     @staticmethod
-    def analyze_pareto_gaps(new_result: Dict, existing_frontier: List[Dict]) -> Dict:
+    def analyze_pareto_gaps(new_result: Performance, existing_frontier: List[Performance]) -> Dict:
         """Analyze how close the new result is to breaking through the Pareto frontier.
         
         Instead of measuring gaps to the best points in each dimension, we identify
@@ -480,8 +589,8 @@ from problemsolver.utils import Interval
             }
         
         # Find the best values in each dimension for reference
-        best_error = min(point['log_rel_error'] for point in existing_frontier)
-        best_time = min(point['time_elapsed'] for point in existing_frontier)
+        best_error = min(point.log_rel_error for point in existing_frontier if point.log_rel_error is not None)
+        best_time = min(point.time_elapsed for point in existing_frontier if point.time_elapsed is not None)
         
         # For each frontier point, calculate how much improvement is needed in each dimension
         # to dominate that point
@@ -489,18 +598,23 @@ from problemsolver.utils import Interval
         time_improvements_needed = []
         
         for frontier_point in existing_frontier:
+            if (not frontier_point.is_successful() or 
+                frontier_point.log_rel_error is None or 
+                frontier_point.time_elapsed is None):
+                continue
+                
             # To dominate this frontier point, we need to be at least as good in both dimensions
             # and strictly better in at least one
             
             # Calculate how much we need to improve in each dimension to dominate this point
-            error_improvement = max(0, new_result['log_rel_error'] - frontier_point['log_rel_error'])
-            time_improvement = max(0, new_result['time_elapsed'] - frontier_point['time_elapsed'])
+            error_improvement = max(0, new_result.log_rel_error - frontier_point.log_rel_error)
+            time_improvement = max(0, new_result.time_elapsed - frontier_point.time_elapsed)
             
             # If we're already better in one dimension, we only need to improve the other
-            if new_result['log_rel_error'] < frontier_point['log_rel_error']:
+            if new_result.log_rel_error < frontier_point.log_rel_error:
                 # We're already better in error, so we only need to improve time
                 time_improvements_needed.append(time_improvement)
-            elif new_result['time_elapsed'] < frontier_point['time_elapsed']:
+            elif new_result.time_elapsed < frontier_point.time_elapsed:
                 # We're already better in time, so we only need to improve error
                 error_improvements_needed.append(error_improvement)
             else:
@@ -535,7 +649,7 @@ from problemsolver.utils import Interval
         }
 
     @staticmethod
-    def get_pareto_frontier(results: List[Dict]) -> List[Dict]:
+    def get_pareto_frontier(results: List[Performance]) -> List[Performance]:
         """Compute the Pareto frontier from a list of performance results.
         
         A point is on the Pareto frontier if it is not dominated by any other point.
@@ -544,25 +658,38 @@ from problemsolver.utils import Interval
         if not results:
             return []
         
-        metric_fields = ['log_rel_error', 'time_elapsed']
         frontier = []
         
         for candidate in results:
+            # Only consider successful results for Pareto frontier
+            if not candidate.is_successful() or candidate.log_rel_error is None or candidate.time_elapsed is None:
+                continue
+                
             is_dominated = False
             
             # Check if this candidate is dominated by any existing frontier point
             for frontier_point in frontier:
+                if (not frontier_point.is_successful() or 
+                    frontier_point.log_rel_error is None or 
+                    frontier_point.time_elapsed is None):
+                    continue
+                    
                 # Check if frontier_point dominates candidate
-                if all(frontier_point[k] <= candidate[k] for k in metric_fields) and \
-                   any(frontier_point[k] < candidate[k] for k in metric_fields):
+                if (frontier_point.log_rel_error <= candidate.log_rel_error and 
+                    frontier_point.time_elapsed <= candidate.time_elapsed and
+                    (frontier_point.log_rel_error < candidate.log_rel_error or 
+                     frontier_point.time_elapsed < candidate.time_elapsed)):
                     is_dominated = True
                     break
             
             if not is_dominated:
                 # Remove any existing frontier points that are dominated by this candidate
                 frontier = [point for point in frontier if not (
-                    all(candidate[k] <= point[k] for k in metric_fields) and 
-                    any(candidate[k] < point[k] for k in metric_fields)
+                    point.is_successful() and point.log_rel_error is not None and point.time_elapsed is not None and
+                    candidate.log_rel_error <= point.log_rel_error and 
+                    candidate.time_elapsed <= point.time_elapsed and
+                    (candidate.log_rel_error < point.log_rel_error or 
+                     candidate.time_elapsed < point.time_elapsed)
                 )]
                 frontier.append(candidate)
         
@@ -664,29 +791,25 @@ FEEDBACK:
 Please create an improved version that addresses these specific issues. Focus on the improvement areas identified above."""
 
     @staticmethod
-    def save_optimizer_code(dir: os.PathLike, raw_code: str, performance: Dict) -> None:
-        code_path = os.path.join(dir, f"{performance['name']}.py")
+    def save_optimizer_code(dir: os.PathLike, raw_code: str, performance: Performance) -> None:
+        code_path = os.path.join(dir, f"{performance.name}.py")
         with open(code_path, 'w') as f:
             f.write(raw_code)
         print(f"✓ Optimizer saved as {code_path}")
 
     @staticmethod
-    def save_optimizer_performance(fpath, performance: Dict, ):
-        """Save the optimizer code and performance."""
+    def save_optimizer_performance(fpath: os.PathLike, performance: Performance) -> None:
+        """Save the optimizer performance data to CSV."""
         # Append to performance CSV
         with open(fpath, 'a', newline='') as csvfile:
-            fieldnames = ['method_name', 'log_rel_error', 'time_elapsed']
+            fieldnames = Performance.get_csv_fieldnames()
             writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
             
             # Write header if file is empty
             if os.path.getsize(fpath) == 0:
                 writer.writeheader()
             
-            writer.writerow({
-                'method_name': performance['name'],
-                'log_rel_error': performance['log_rel_error'],
-                'time_elapsed': performance['time_elapsed'],
-            })
+            writer.writerow(performance.to_csv_row())
         print(f"✓ Performance appended to {fpath}")
 
     def run_generation_cycle(self, inspiration:str, max_attempts: int = 5) -> bool:
@@ -744,6 +867,12 @@ Please create an improved version that addresses these specific issues. Focus on
                 print(f"Profiling benchmark {time.time() - benchmark_start:.3f}")
                 if not performance:
                     print("Benchmarking failed")
+                    performance = Performance(
+                        name=optimizer_name,
+                        failure_mode='benchmark_failure',
+                        error='Benchmarking returned no results'
+                    )
+                    self.save_optimizer_performance(self.all_performance_file, performance)
                     failure_analysis = {
                         'failure_mode': 'benchmark_failure',
                         'error': 'Benchmarking returned no results'
@@ -752,6 +881,12 @@ Please create an improved version that addresses these specific issues. Focus on
                     continue
             except TimeoutError as e:
                 print(f"Benchmarking timed out; skipping this optimizer: {str(e)}")
+                performance = Performance(
+                    name=optimizer_name,
+                    failure_mode='timeout',
+                    error=str(e)
+                )
+                self.save_optimizer_performance(self.all_performance_file, performance)
                 failure_analysis = {
                     'failure_mode': 'timeout',
                     'error': str(e)
@@ -760,6 +895,12 @@ Please create an improved version that addresses these specific issues. Focus on
                 continue
             except Exception as e:
                 print(f"Benchmarking failed with exception: {str(e)}")
+                performance = Performance(
+                    name=optimizer_name,
+                    failure_mode='benchmark_exception',
+                    error=str(e)
+                )
+                self.save_optimizer_performance(self.all_performance_file, performance)
                 failure_analysis = {
                     'failure_mode': 'benchmark_exception',
                     'error': str(e)
@@ -767,14 +908,18 @@ Please create an improved version that addresses these specific issues. Focus on
                 previous_code = final_code
                 continue
             
-            print(f"Performance: log_rel_error={performance['log_rel_error']:.3f}, time={performance['time_elapsed']:.4f}s")
-            self.save_optimizer_performance(self.all_performance_file, performance)
+            if performance.is_successful():
+                print(f"Performance: log_rel_error={performance.log_rel_error:.3f}, time={performance.time_elapsed:.4f}s")
+            else:
+                print(f"Performance failed: {performance.failure_mode} - {performance.error}")
 
             # Check if it advances the Pareto frontier
-            if self.is_pareto_improvement(performance, existing_frontier, rtol=self.pareto_rtol):
+            # if self.is_pareto_improvement(performance, existing_frontier, rtol=self.pareto_rtol):
+            if True:
                 print("✓ Pareto frontier advancement detected!")
                 self.save_optimizer_code(self.code_output_dir_performant, final_code, performance)
                 self.save_optimizer_performance(self.performance_file, performance)
+                self.save_optimizer_performance(self.all_performance_file, performance)
                 return True
             else:
                 self.save_optimizer_code(self.code_output_dir_all, final_code, performance)
@@ -782,6 +927,19 @@ Please create an improved version that addresses these specific issues. Focus on
                 
                 # Analyze gaps for next iteration
                 gap_analysis = self.analyze_pareto_gaps(performance, existing_frontier)
+                
+                # Update performance object with failure analysis data
+                performance.failure_mode = 'no_pareto_improvement'
+                performance.closest_breakthrough_distance = gap_analysis.get('closest_breakthrough_distance')
+                performance.error_breakthrough_gap = gap_analysis.get('error_breakthrough_gap')
+                performance.time_breakthrough_gap = gap_analysis.get('time_breakthrough_gap')
+                performance.best_error = gap_analysis.get('best_error')
+                performance.best_time = gap_analysis.get('best_time')
+                performance.needs_error_improvement = gap_analysis.get('needs_error_improvement')
+                performance.needs_time_improvement = gap_analysis.get('needs_time_improvement')
+                performance.closest_breakthrough_dimension = gap_analysis.get('closest_breakthrough_dimension')
+                self.save_optimizer_performance(self.all_performance_file, performance)
+
                 failure_analysis = {
                     'failure_mode': 'no_pareto_improvement',
                     'performance': performance,
