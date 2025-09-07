@@ -14,126 +14,16 @@ import random
 import pathlib
 import importlib.util
 from typing import List, Dict, Tuple, Optional, Callable
-import numpy as np
-import attrs
 
 import click
 from langchain_openai.chat_models import ChatOpenAI
 from langchain.schema import HumanMessage, SystemMessage
 from typing import Annotated
-from problemsolver.utils import check_optimizer_annotations, check_optimizer_function, Interval
+from problemsolver.utils import check_optimizer_annotations, check_optimizer_function, Interval, Performance, to_camel_case
 from problemsolver.evaluator import benchmark_optimizer, generate_test_functions, MAX_ALLOWED_PROBLEM_TIME, MAX_ALLOWED_ROLLING_AVERAGE_FUNCTION_TIME
-import re
-import unicodedata
+from problemsolver.pareto_metrics import ParetoMetric, StrictDominanceParetoMetric, ConvexHullParetoMetric
 
 
-@attrs.define
-class Performance:
-    """Performance data for an optimizer, including benchmarking results and failure analysis."""
-    
-    # Core performance metrics
-    name: str
-    log_rel_error: Optional[float] = None
-    time_elapsed: Optional[float] = None
-    best_params: Dict = attrs.field(factory=dict)
-    
-    # Failure analysis fields
-    failure_mode: Optional[str] = None
-    error: Optional[str] = None
-    closest_breakthrough_distance: Optional[float] = None
-    error_breakthrough_gap: Optional[float] = None
-    time_breakthrough_gap: Optional[float] = None
-    best_error: Optional[float] = None
-    best_time: Optional[float] = None
-    needs_error_improvement: Optional[bool] = None
-    needs_time_improvement: Optional[bool] = None
-    closest_breakthrough_dimension: Optional[str] = None
-    
-    def is_successful(self) -> bool:
-        """Check if the optimizer was successful (no failure mode)."""
-        return self.failure_mode is None
-    
-    def to_csv_row(self) -> Dict[str, str]:
-        """Convert to dictionary for CSV writing with proper string conversion."""
-        return {
-            'method_name': self.name,
-            'log_rel_error': str(self.log_rel_error) if self.log_rel_error is not None else '',
-            'time_elapsed': str(self.time_elapsed) if self.time_elapsed is not None else '',
-            'best_params': str(self.best_params) if self.best_params else '',
-            'failure_mode': self.failure_mode or '',
-            'error': self.error or '',
-            'closest_breakthrough_distance': str(self.closest_breakthrough_distance) if self.closest_breakthrough_distance is not None else '',
-            'error_breakthrough_gap': str(self.error_breakthrough_gap) if self.error_breakthrough_gap is not None else '',
-            'time_breakthrough_gap': str(self.time_breakthrough_gap) if self.time_breakthrough_gap is not None else '',
-            'best_error': str(self.best_error) if self.best_error is not None else '',
-            'best_time': str(self.best_time) if self.best_time is not None else '',
-            'needs_error_improvement': str(self.needs_error_improvement) if self.needs_error_improvement is not None else '',
-            'needs_time_improvement': str(self.needs_time_improvement) if self.needs_time_improvement is not None else '',
-            'closest_breakthrough_dimension': self.closest_breakthrough_dimension or ''
-        }
-    
-    @classmethod
-    def from_csv_row(cls, row: Dict[str, str]) -> 'Performance':
-        """Create Performance object from CSV row with proper type conversion."""
-        def safe_float(value: str) -> Optional[float]:
-            if not value or value.strip() == '':
-                return None
-            try:
-                return float(value)
-            except (ValueError, TypeError):
-                return None
-        
-        def safe_bool(value: str) -> Optional[bool]:
-            if not value or value.strip() == '':
-                return None
-            return value.lower() == 'true'
-        
-        def safe_eval_dict(value: str) -> Dict:
-            if not value or value.strip() == '':
-                return {}
-            try:
-                return eval(value) if value else {}
-            except:
-                return {}
-        
-        return cls(
-            name=row.get('method_name', ''),
-            log_rel_error=safe_float(row.get('log_rel_error', '')),
-            time_elapsed=safe_float(row.get('time_elapsed', '')),
-            best_params=safe_eval_dict(row.get('best_params', '')),
-            failure_mode=row.get('failure_mode') or None,
-            error=row.get('error') or None,
-            closest_breakthrough_distance=safe_float(row.get('closest_breakthrough_distance', '')),
-            error_breakthrough_gap=safe_float(row.get('error_breakthrough_gap', '')),
-            time_breakthrough_gap=safe_float(row.get('time_breakthrough_gap', '')),
-            best_error=safe_float(row.get('best_error', '')),
-            best_time=safe_float(row.get('best_time', '')),
-            needs_error_improvement=safe_bool(row.get('needs_error_improvement', '')),
-            needs_time_improvement=safe_bool(row.get('needs_time_improvement', '')),
-            closest_breakthrough_dimension=row.get('closest_breakthrough_dimension') or None
-        )
-    
-    @classmethod
-    def get_csv_fieldnames(cls) -> List[str]:
-        """Get the fieldnames for CSV writing."""
-        return [
-            'method_name', 'log_rel_error', 'time_elapsed', 'best_params',
-            'failure_mode', 'error', 'closest_breakthrough_distance',
-            'error_breakthrough_gap', 'time_breakthrough_gap', 'best_error',
-            'best_time', 'needs_error_improvement', 'needs_time_improvement',
-            'closest_breakthrough_dimension'
-        ]
-
-
-def to_camel_case(text: str) -> str:
-    # Convert text like "convert THIS_to–camelCASE!" to "ConvertThisToCamelCase"
-    text = unicodedata.normalize('NFKD', text)
-    text = text.encode('ascii', 'ignore').decode('ascii')
-    # 2. Replace any sequence of non-alphanumeric characters with a single space
-    text = re.sub(r'[^0-9A-Za-z]+', ' ', text)
-    # 3. Split on whitespace, capitalize each word, and join
-    parts = text.strip().split()
-    return ''.join(word.capitalize() for word in parts)
 
 class OptimizerGenerator:
     def __init__(self, api_key: str,
@@ -146,7 +36,8 @@ class OptimizerGenerator:
                  output_dir: str = "data/output",
                  pareto_rtol: float = 0.0, n_jobs: int = 1,
                  max_allowed_time_per_function: float = MAX_ALLOWED_PROBLEM_TIME,
-                 max_allowed_rolling_average_function_time: float = MAX_ALLOWED_ROLLING_AVERAGE_FUNCTION_TIME):
+                 max_allowed_rolling_average_function_time: float = MAX_ALLOWED_ROLLING_AVERAGE_FUNCTION_TIME,
+                 pareto_metric: ParetoMetric | None = None):
         """Initialize the optimizer generator."""
         self.llm = ChatOpenAI(
             openai_api_key=api_key,
@@ -162,6 +53,7 @@ class OptimizerGenerator:
         self.n_jobs = n_jobs
         self.output_dir = pathlib.Path(output_dir).expanduser().resolve()
         self.pareto_rtol = pareto_rtol
+        self.pareto_metric = pareto_metric or StrictDominanceParetoMetric
 
         self.performance_file = self.output_dir / "optimizers_performant.csv"
         self.load_performance_file(self.performance_file, empty_ok=False)  # Ensure that file exists and is well-formatted
@@ -437,11 +329,11 @@ from problemsolver.utils import Interval
 
         for iteration in range(max_iterations):
             try:
-                # response = self.llm.invoke(messages)
-                # optimizer_func, raw_code = self.extract_func_and_code_from_response(response.content)
-                with open("/Users/eric/src/problemsolver/src/problemsolver/optimizers/bioinspired/firefly.py", "r") as f:
-                    loaded_text = f.read()
-                optimizer_func, raw_code = self.extract_func_and_code_from_response(loaded_text)
+                response = self.llm.invoke(messages)
+                optimizer_func, raw_code = self.extract_func_and_code_from_response(response.content)
+                # with open("/Users/eric/src/problemsolver/src/problemsolver/optimizers/bioinspired/firefly.py", "r") as f:
+                #     loaded_text = f.read()
+                # optimizer_func, raw_code = self.extract_func_and_code_from_response(loaded_text)
 
 
                 # Validate and debug
@@ -547,153 +439,17 @@ from problemsolver.utils import Interval
                 results.append(Performance.from_csv_row(row))
         return results
 
-    @staticmethod
-    def is_pareto_improvement(new_result: Performance, existing_results: List[Performance], rtol=0.0) -> bool:
-        # Pareto improvement: At least as good as existing in all metrics, and strictly better in at least one metric.
-        # Only consider successful results for Pareto comparison
-        if not new_result.is_successful() or new_result.log_rel_error is None or new_result.time_elapsed is None:
-            return False
+    def is_pareto_improvement(self, new_result: Performance, existing_results: List[Performance], rtol=0.0) -> bool:
+        """Check if new result represents a Pareto improvement using the configured metric."""
+        return self.pareto_metric.is_improvement(new_result, existing_results, rtol)
 
-        for existing in existing_results:
-            if not existing.is_successful() or existing.log_rel_error is None or existing.time_elapsed is None:
-                continue
-                
-            # Check if new result dominates existing result
-            new_error = new_result.log_rel_error
-            new_time = new_result.time_elapsed
-            existing_error = existing.log_rel_error + rtol * abs(existing.log_rel_error)
-            existing_time = existing.time_elapsed + rtol * abs(existing.time_elapsed)
-            
-            if (new_error <= existing_error and new_time <= existing_time and 
-                (new_error < existing_error or new_time < existing_time)):
-                return True
-        return False
+    def analyze_pareto_gaps(self, new_result: Performance, existing_frontier: List[Performance]) -> Dict:
+        """Analyze how close the new result is to breaking through the Pareto frontier using the configured metric."""
+        return self.pareto_metric.analyze_gaps(new_result, existing_frontier)
 
-    @staticmethod
-    def analyze_pareto_gaps(new_result: Performance, existing_frontier: List[Performance]) -> Dict:
-        """Analyze how close the new result is to breaking through the Pareto frontier.
-        
-        Instead of measuring gaps to the best points in each dimension, we identify
-        which dimension is closest to allowing the point to advance the frontier.
-        """
-        if not existing_frontier:
-            return {
-                'closest_breakthrough_distance': 0.0,
-                'error_breakthrough_gap': 0.0,
-                'time_breakthrough_gap': 0.0,
-                'best_error': float('inf'),
-                'best_time': float('inf'),
-                'needs_error_improvement': False,
-                'needs_time_improvement': False,
-                'closest_breakthrough_dimension': 'none'
-            }
-        
-        # Find the best values in each dimension for reference
-        best_error = min(point.log_rel_error for point in existing_frontier if point.log_rel_error is not None)
-        best_time = min(point.time_elapsed for point in existing_frontier if point.time_elapsed is not None)
-        
-        # For each frontier point, calculate how much improvement is needed in each dimension
-        # to dominate that point
-        error_improvements_needed = []
-        time_improvements_needed = []
-        
-        for frontier_point in existing_frontier:
-            if (not frontier_point.is_successful() or 
-                frontier_point.log_rel_error is None or 
-                frontier_point.time_elapsed is None):
-                continue
-                
-            # To dominate this frontier point, we need to be at least as good in both dimensions
-            # and strictly better in at least one
-            
-            # Calculate how much we need to improve in each dimension to dominate this point
-            error_improvement = max(0, new_result.log_rel_error - frontier_point.log_rel_error)
-            time_improvement = max(0, new_result.time_elapsed - frontier_point.time_elapsed)
-            
-            # If we're already better in one dimension, we only need to improve the other
-            if new_result.log_rel_error < frontier_point.log_rel_error:
-                # We're already better in error, so we only need to improve time
-                time_improvements_needed.append(time_improvement)
-            elif new_result.time_elapsed < frontier_point.time_elapsed:
-                # We're already better in time, so we only need to improve error
-                error_improvements_needed.append(error_improvement)
-            else:
-                # We need to improve in at least one dimension to dominate
-                error_improvements_needed.append(error_improvement)
-                time_improvements_needed.append(time_improvement)
-        
-        # Find the minimum improvement needed in each dimension to break through
-        min_error_improvement = min(error_improvements_needed) if error_improvements_needed else float('inf')
-        min_time_improvement = min(time_improvements_needed) if time_improvements_needed else float('inf')
-        
-        # Determine which dimension is closest to breakthrough
-        if min_error_improvement < min_time_improvement:
-            closest_dimension = 'error'
-            closest_breakthrough_distance = min_error_improvement
-        elif min_time_improvement < min_error_improvement:
-            closest_dimension = 'time'
-            closest_breakthrough_distance = min_time_improvement
-        else:
-            closest_dimension = 'tie'
-            closest_breakthrough_distance = min_error_improvement
-        
-        return {
-            'closest_breakthrough_distance': closest_breakthrough_distance,
-            'error_breakthrough_gap': min_error_improvement,
-            'time_breakthrough_gap': min_time_improvement,
-            'best_error': best_error,
-            'best_time': best_time,
-            'needs_error_improvement': min_error_improvement > 0,
-            'needs_time_improvement': min_time_improvement > 0,
-            'closest_breakthrough_dimension': closest_dimension
-        }
-
-    @staticmethod
-    def get_pareto_frontier(results: List[Performance]) -> List[Performance]:
-        """Compute the Pareto frontier from a list of performance results.
-        
-        A point is on the Pareto frontier if it is not dominated by any other point.
-        A point dominates another if it is at least as good in all metrics and strictly better in at least one.
-        """
-        if not results:
-            return []
-        
-        frontier = []
-        
-        for candidate in results:
-            # Only consider successful results for Pareto frontier
-            if not candidate.is_successful() or candidate.log_rel_error is None or candidate.time_elapsed is None:
-                continue
-                
-            is_dominated = False
-            
-            # Check if this candidate is dominated by any existing frontier point
-            for frontier_point in frontier:
-                if (not frontier_point.is_successful() or 
-                    frontier_point.log_rel_error is None or 
-                    frontier_point.time_elapsed is None):
-                    continue
-                    
-                # Check if frontier_point dominates candidate
-                if (frontier_point.log_rel_error <= candidate.log_rel_error and 
-                    frontier_point.time_elapsed <= candidate.time_elapsed and
-                    (frontier_point.log_rel_error < candidate.log_rel_error or 
-                     frontier_point.time_elapsed < candidate.time_elapsed)):
-                    is_dominated = True
-                    break
-            
-            if not is_dominated:
-                # Remove any existing frontier points that are dominated by this candidate
-                frontier = [point for point in frontier if not (
-                    point.is_successful() and point.log_rel_error is not None and point.time_elapsed is not None and
-                    candidate.log_rel_error <= point.log_rel_error and 
-                    candidate.time_elapsed <= point.time_elapsed and
-                    (candidate.log_rel_error < point.log_rel_error or 
-                     candidate.time_elapsed < point.time_elapsed)
-                )]
-                frontier.append(candidate)
-        
-        return frontier
+    def get_pareto_frontier(self, results: List[Performance]) -> List[Performance]:
+        """Compute the Pareto frontier from a list of performance results using the configured metric."""
+        return self.pareto_metric.get_frontier(results)
 
     @staticmethod
     def get_improvement_prompt(original_prompt: str, previous_code: str, failure_analysis: Dict) -> str:
@@ -914,8 +670,7 @@ Please create an improved version that addresses these specific issues. Focus on
                 print(f"Performance failed: {performance.failure_mode} - {performance.error}")
 
             # Check if it advances the Pareto frontier
-            # if self.is_pareto_improvement(performance, existing_frontier, rtol=self.pareto_rtol):
-            if True:
+            if self.is_pareto_improvement(performance, existing_frontier, rtol=self.pareto_rtol):
                 print("✓ Pareto frontier advancement detected!")
                 self.save_optimizer_code(self.code_output_dir_performant, final_code, performance)
                 self.save_optimizer_performance(self.performance_file, performance)
@@ -1105,10 +860,19 @@ def inspire(api_key: str, api_base: str, model: str, n_pareto_attempts: int, n_t
 @click.option('--max-allowed-rolling-average-function-time', default=MAX_ALLOWED_ROLLING_AVERAGE_FUNCTION_TIME, type=float, help='Maximum allowed rolling average function time')
 @click.option('--output-dir', default="data/output", help='Output directory')
 @click.option('--ideas-file', default="data/emergent_optimization_ideas.txt", help='File containing emergent optimization ideas')
+@click.option('--pareto-metric', default='classic', type=click.Choice(['classic', 'convex_hull']), help='Pareto metric to use: strict dominance or convex hull')
 def sweep(api_key: str, api_base: str, model: str, start_index: int , n_pareto_attempts: int, n_tune_functions: int,
-         n_test_functions: int, n_tuning_trials: int, n_dims: int, output_dir: str, ideas_file: str, pareto_rtol: float = 0.0, n_jobs: int = 1, max_allowed_time_per_function: float = MAX_ALLOWED_PROBLEM_TIME, max_allowed_rolling_average_function_time: float = MAX_ALLOWED_ROLLING_AVERAGE_FUNCTION_TIME):
+         n_test_functions: int, n_tuning_trials: int, n_dims: int, output_dir: str, ideas_file: str, pareto_rtol: float = 0.0, n_jobs: int = 1, max_allowed_time_per_function: float = MAX_ALLOWED_PROBLEM_TIME, max_allowed_rolling_average_function_time: float = MAX_ALLOWED_ROLLING_AVERAGE_FUNCTION_TIME, pareto_metric: str = 'strict'):
     """Generate new optimizers using LLMs, sweeping through all inspirations."""
 
+    # Select the appropriate Pareto metric
+    if pareto_metric == 'convex_hull':
+        metric = ConvexHullParetoMetric
+    elif pareto_metric == 'classic':
+        metric = StrictDominanceParetoMetric
+    else:
+        raise ValueError(f"Invalid Pareto metric: {pareto_metric}")
+    
     generator = OptimizerGenerator(
         api_key=api_key,
         api_base=api_base,
@@ -1121,7 +885,8 @@ def sweep(api_key: str, api_base: str, model: str, start_index: int , n_pareto_a
         n_tuning_trials=n_tuning_trials,
         n_dims=n_dims,
         output_dir=output_dir,
-        pareto_rtol=pareto_rtol
+        pareto_rtol=pareto_rtol,
+        pareto_metric=metric
     )
     ideas = generator.load_emergent_ideas(ideas_file)
     if not ideas:
@@ -1154,9 +919,17 @@ def sweep(api_key: str, api_base: str, model: str, start_index: int , n_pareto_a
 @click.option('--output-dir', default="data/output", help='Output directory')
 @click.option('--ideas-file', default="data/emergent_optimization_ideas.txt", help='File containing emergent optimization ideas')
 @click.option('--n-blend-examples', default=3, type=int, help='Number of code examples to blend for inspiration')
+@click.option('--pareto-metric', default='strict', type=click.Choice(['strict', 'convex_hull']), help='Pareto metric to use: strict dominance or convex hull')
 def blend_sweep(api_key: str, api_base: str, model: str, start_index: int , n_pareto_attempts: int, n_tune_functions: int,
-         n_test_functions: int, n_tuning_trials: int, n_dims: int, output_dir: str, ideas_file: str, pareto_rtol: float = 0.0, n_blend_examples: int = 3, n_jobs: int = 1, max_allowed_time_per_function: float = MAX_ALLOWED_PROBLEM_TIME, max_allowed_rolling_average_function_time: float = MAX_ALLOWED_ROLLING_AVERAGE_FUNCTION_TIME):
+         n_test_functions: int, n_tuning_trials: int, n_dims: int, output_dir: str, ideas_file: str, pareto_rtol: float = 0.0, n_blend_examples: int = 3, n_jobs: int = 1, max_allowed_time_per_function: float = MAX_ALLOWED_PROBLEM_TIME, max_allowed_rolling_average_function_time: float = MAX_ALLOWED_ROLLING_AVERAGE_FUNCTION_TIME, pareto_metric: str = 'strict'):
     """Generate new optimizers using LLMs, sweeping through all inspirations and blending with existing performant optimizers."""
+    
+    # Select the appropriate Pareto metric
+    if pareto_metric == 'convex_hull':
+        metric = ConvexHullParetoMetric()
+    else:
+        metric = StrictDominanceParetoMetric()
+    
     generator = BlendedOptimizerGenerator(
         api_key=api_key,
         api_base=api_base,
@@ -1170,6 +943,7 @@ def blend_sweep(api_key: str, api_base: str, model: str, start_index: int , n_pa
         n_dims=n_dims,
         output_dir=output_dir,
         pareto_rtol=pareto_rtol,
+        pareto_metric=metric,
         n_blend_examples=n_blend_examples
     )
     ideas = generator.load_emergent_ideas(ideas_file)
