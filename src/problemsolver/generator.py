@@ -42,7 +42,7 @@ class OptimizerGenerator:
         self.llm = ChatOpenAI(
             openai_api_key=api_key,
             openai_api_base=api_base,
-            model_name=model_name,
+            model_name=model_name, request_timeout=300, max_retries=3,
         )
         self.n_tune_functions = n_tune_functions
         self.n_test_functions = n_test_functions
