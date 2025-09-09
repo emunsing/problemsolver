@@ -23,6 +23,24 @@ from problemsolver.utils import check_optimizer_annotations, check_optimizer_fun
 from problemsolver.evaluator import benchmark_optimizer, generate_test_functions, MAX_ALLOWED_PROBLEM_TIME, MAX_ALLOWED_ROLLING_AVERAGE_FUNCTION_TIME
 from problemsolver.pareto_metrics import ParetoMetric, StrictDominanceParetoMetric, ConvexHullParetoMetric
 
+import logging
+
+def setup_logging(log_level: str = "INFO"):
+    """Configure logging with the specified level."""
+    numeric_level = getattr(logging, log_level.upper(), None)
+    if not isinstance(numeric_level, int):
+        raise ValueError(f'Invalid log level: {log_level}')
+    
+    logging.basicConfig(
+        format='%(asctime)s - %(levelname)s - %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S',
+        level=numeric_level,
+        force=True  # Override any existing configuration
+    )
+
+# Set up default logging
+setup_logging("INFO")
+logger = logging.getLogger(__name__)
 
 
 class OptimizerGenerator:
@@ -312,7 +330,7 @@ from problemsolver.utils import Interval
             check_optimizer_annotations(optimizer_func)
         except ValueError as ve:
             if "No Annotated parameters with Interval" in str(ve):
-                print(f"Annotation error; continuing: {str(ve)}")
+                logger.warning(f"Annotation error; continuing: {str(ve)}")
             else:
                 raise ve
         check_optimizer_function(optimizer_func)
@@ -330,6 +348,7 @@ from problemsolver.utils import Interval
         for iteration in range(max_iterations):
             try:
                 response = self.llm.invoke(messages)
+                logger.info(f"Iteration {iteration + 1} optimizer generation: Response received")
                 optimizer_func, raw_code = self.extract_func_and_code_from_response(response.content)
                 # with open("/Users/eric/src/problemsolver/src/problemsolver/optimizers/bioinspired/firefly.py", "r") as f:
                 #     loaded_text = f.read()
@@ -337,12 +356,13 @@ from problemsolver.utils import Interval
 
 
                 # Validate and debug
+                logger.info(f"Iteration {iteration + 1} optimizer generation: Validating code")
                 success, final_func, final_code, error_msg = self.validate_optimizer_code(optimizer_func,
                                                                           raw_code=raw_code,
                                                                           original_prompt=original_prompt)
             except Exception as e:
                 error_msg = str(e)
-                print(f"Iteration {iteration + 1} optimizer generation: Error - {error_msg}")
+                logger.info(f"Iteration {iteration + 1} optimizer generation: Error - {error_msg}")
                 debug_prompt = self.get_debug_prompt(original_prompt, raw_code, error_msg)
                 messages = [
                     SystemMessage(content=self.get_system_prompt()),
@@ -351,9 +371,9 @@ from problemsolver.utils import Interval
                 continue
 
         if success:
-            print("✓ Optimizer code generated successfully")
+            logger.info("✓ Optimizer code generated successfully")
         else:
-            print(f"✗ Failed to generate valid optimizer: {error_msg}")
+            logger.info(f"✗ Failed to generate valid optimizer: {error_msg}")
 
         return success, final_func, final_code, error_msg
 
@@ -382,7 +402,7 @@ from problemsolver.utils import Interval
                 best_params=best_params
             )
         except Exception as e:
-            print(f"Benchmarking failed: {e}")
+            logger.warning(f"Benchmarking failed: {e}")
             return Performance(
                 name=optimizer_name,
                 failure_mode='benchmark_exception',
@@ -551,7 +571,7 @@ Please create an improved version that addresses these specific issues. Focus on
         code_path = os.path.join(dir, f"{performance.name}.py")
         with open(code_path, 'w') as f:
             f.write(raw_code)
-        print(f"✓ Optimizer saved as {code_path}")
+        logger.info(f"✓ Optimizer saved as {code_path}")
 
     @staticmethod
     def save_optimizer_performance(fpath: os.PathLike, performance: Performance) -> None:
@@ -566,7 +586,7 @@ Please create an improved version that addresses these specific issues. Focus on
                 writer.writeheader()
             
             writer.writerow(performance.to_csv_row())
-        print(f"✓ Performance appended to {fpath}")
+        logger.info(f"✓ Performance appended to {fpath}")
 
     def run_generation_cycle(self, inspiration:str, max_attempts: int = 5) -> bool:
         """Run a complete generation cycle, where success is defined as generating an optimizer which advances the Pareto frontier."""
@@ -575,7 +595,7 @@ Please create an improved version that addresses these specific issues. Focus on
         # Load existing performance and compute Pareto frontier
         performant_results = self.load_performance_file(self.performance_file)
         existing_frontier = self.get_pareto_frontier(performant_results)
-        print(f"Testing against Pareto frontier with {len(existing_frontier)} points")
+        logger.info(f"Testing against Pareto frontier with {len(existing_frontier)} points")
 
         # Store the original generation prompt for reference
         original_prompt = self.get_generation_prompt(inspiration)
@@ -583,7 +603,7 @@ Please create an improved version that addresses these specific issues. Focus on
         failure_analysis: Dict = {}
 
         for attempt in range(max_attempts):
-            print(f"\n=== Attempt {attempt + 1}/{max_attempts} at pareto improvement ===")
+            logger.info(f"=== Attempt {attempt + 1}/{max_attempts} at pareto improvement ===")
             
             # Generate optimizer with feedback from previous attempts
             if attempt == 0:
@@ -602,10 +622,10 @@ Please create an improved version that addresses these specific issues. Focus on
                                                                              original_prompt=generation_prompt,
                                                                              )
             generate_end = time.time()
-            print(f"Profiling generation {generate_end - generate_start:.3f}")
+            logger.info(f"Profiling generation {generate_end - generate_start:.3f}")
 
             if not success or final_func is None:
-                print(f"Generation failed: {error}")
+                logger.warning(f"Generation failed: {error}")
                 failure_analysis = {
                     'failure_mode': 'validation_error',
                     'error': error
@@ -620,9 +640,9 @@ Please create an improved version that addresses these specific issues. Focus on
             try:
                 benchmark_start = time.time()
                 performance = self.benchmark_new_optimizer(final_func, optimizer_name)
-                print(f"Profiling benchmark {time.time() - benchmark_start:.3f}")
+                logger.info(f"Profiling benchmark {time.time() - benchmark_start:.3f}")
                 if not performance:
-                    print("Benchmarking failed")
+                    logger.warning("Benchmarking failed")
                     performance = Performance(
                         name=optimizer_name,
                         failure_mode='benchmark_failure',
@@ -636,7 +656,7 @@ Please create an improved version that addresses these specific issues. Focus on
                     previous_code = final_code
                     continue
             except TimeoutError as e:
-                print(f"Benchmarking timed out; skipping this optimizer: {str(e)}")
+                logger.warning(f"Benchmarking timed out; skipping this optimizer: {str(e)}")
                 performance = Performance(
                     name=optimizer_name,
                     failure_mode='timeout',
@@ -650,7 +670,7 @@ Please create an improved version that addresses these specific issues. Focus on
                 previous_code = final_code
                 continue
             except Exception as e:
-                print(f"Benchmarking failed with exception: {str(e)}")
+                logger.warning(f"Benchmarking failed with exception: {str(e)}")
                 performance = Performance(
                     name=optimizer_name,
                     failure_mode='benchmark_exception',
@@ -665,20 +685,20 @@ Please create an improved version that addresses these specific issues. Focus on
                 continue
             
             if performance.is_successful():
-                print(f"Performance: log_rel_error={performance.log_rel_error:.3f}, time={performance.time_elapsed:.4f}s")
+                logger.info(f"Performance: log_rel_error={performance.log_rel_error:.3f}, time={performance.time_elapsed:.4f}s")
             else:
-                print(f"Performance failed: {performance.failure_mode} - {performance.error}")
+                logger.warning(f"Performance failed: {performance.failure_mode} - {performance.error}")
 
             # Check if it advances the Pareto frontier
             if self.is_pareto_improvement(performance, existing_frontier, rtol=self.pareto_rtol):
-                print("✓ Pareto frontier advancement detected!")
+                logger.info("✓ Pareto frontier advancement detected!")
                 self.save_optimizer_code(self.code_output_dir_performant, final_code, performance)
                 self.save_optimizer_performance(self.performance_file, performance)
                 self.save_optimizer_performance(self.all_performance_file, performance)
                 return True
             else:
                 self.save_optimizer_code(self.code_output_dir_all, final_code, performance)
-                print("✗ No Pareto frontier advancement")
+                logger.info("✗ No Pareto frontier advancement")
                 
                 # Analyze gaps for next iteration
                 gap_analysis = self.analyze_pareto_gaps(performance, existing_frontier)
@@ -702,7 +722,7 @@ Please create an improved version that addresses these specific issues. Focus on
                 }
                 previous_code = final_code
         
-        print(f"Failed to generate Pareto-improving optimizer after {max_attempts} attempts")
+        logger.info(f"Failed to generate Pareto-improving optimizer after {max_attempts} attempts")
         return False
 
 
@@ -770,9 +790,11 @@ Create a complete, runnable Python function that implements your blended, novel 
 @click.option('--n-test-functions', default=20, type=int, help='Number of functions for testing')
 @click.option('--n-tuning-trials', default=100, type=int, help='Number of tuning trials')
 @click.option('--n-dims', default=5, type=int, help='Number of dimensions for test functions')
+@click.option('--log-level', default='INFO', type=click.Choice(['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL']), help='Logging level')
 def main(api_key: str, api_base: str, model: str, n_pareto_attempts: int, n_tune_functions: int,
-         n_test_functions: int, n_tuning_trials: int, n_dims: int):
+         n_test_functions: int, n_tuning_trials: int, n_dims: int, log_level: str):
     """Generate new optimizers using LLMs."""
+    setup_logging(log_level)
     generator = OptimizerGenerator(
         api_key=api_key,
         api_base=api_base,
@@ -785,18 +807,18 @@ def main(api_key: str, api_base: str, model: str, n_pareto_attempts: int, n_tune
     ideas_file = "data/emergent_optimization_ideas.txt"
     ideas = generator.load_emergent_ideas(ideas_file)
     if not ideas:
-        print("No emergent ideas found!")
+        logger.warning("No emergent ideas found!")
         return False
     # Select random inspiration
     inspiration = random.choice(ideas)
-    print(f"Inspiration: {inspiration}")
+    logger.info(f"Inspiration: {inspiration}")
 
     success = generator.run_generation_cycle(inspiration=inspiration, max_attempts=n_pareto_attempts)
     
     if success:
-        print("\n🎉 Successfully generated a Pareto-improving optimizer!")
+        logger.info("🎉 Successfully generated a Pareto-improving optimizer!")
     else:
-        print("\n😞 Failed to generate a Pareto-improving optimizer")
+        logger.info("😞 Failed to generate a Pareto-improving optimizer")
     return success
 
 
@@ -814,9 +836,11 @@ def cli():
 @click.option('--n-test-functions', default=20, type=int, help='Number of functions for testing')
 @click.option('--n-tuning-trials', default=100, type=int, help='Number of tuning trials')
 @click.option('--n-dims', default=5, type=int, help='Number of dimensions for test functions')
+@click.option('--log-level', default='INFO', type=click.Choice(['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL']), help='Logging level')
 def inspire(api_key: str, api_base: str, model: str, n_pareto_attempts: int, n_tune_functions: int,
-         n_test_functions: int, n_tuning_trials: int, n_dims: int):
+         n_test_functions: int, n_tuning_trials: int, n_dims: int, log_level: str):
     """Generate new optimizers using LLMs."""
+    setup_logging(log_level)
     generator = OptimizerGenerator(
         api_key=api_key,
         api_base=api_base,
@@ -829,18 +853,18 @@ def inspire(api_key: str, api_base: str, model: str, n_pareto_attempts: int, n_t
     ideas_file = "data/emergent_optimization_ideas.txt"
     ideas = generator.load_emergent_ideas(ideas_file)
     if not ideas:
-        print("No emergent ideas found!")
+        logger.warning("No emergent ideas found!")
         return False
     # Select random inspiration
     inspiration = random.choice(ideas)
-    print(f"Inspiration: {inspiration}")
+    logger.info(f"Inspiration: {inspiration}")
 
     success = generator.run_generation_cycle(inspiration=inspiration, max_attempts=n_pareto_attempts)
 
     if success:
-        print("\n🎉 Successfully generated a Pareto-improving optimizer!")
+        logger.info("🎉 Successfully generated a Pareto-improving optimizer!")
     else:
-        print("\n😞 Failed to generate a Pareto-improving optimizer")
+        logger.info("😞 Failed to generate a Pareto-improving optimizer")
     return success
 
 
@@ -861,9 +885,11 @@ def inspire(api_key: str, api_base: str, model: str, n_pareto_attempts: int, n_t
 @click.option('--output-dir', default="data/output", help='Output directory')
 @click.option('--ideas-file', default="data/emergent_optimization_ideas.txt", help='File containing emergent optimization ideas')
 @click.option('--pareto-metric', default='classic', type=click.Choice(['classic', 'convex_hull']), help='Pareto metric to use: strict dominance or convex hull')
+@click.option('--log-level', default='INFO', type=click.Choice(['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL']), help='Logging level')
 def sweep(api_key: str, api_base: str, model: str, start_index: int , n_pareto_attempts: int, n_tune_functions: int,
-         n_test_functions: int, n_tuning_trials: int, n_dims: int, output_dir: str, ideas_file: str, pareto_rtol: float = 0.0, n_jobs: int = 1, max_allowed_time_per_function: float = MAX_ALLOWED_PROBLEM_TIME, max_allowed_rolling_average_function_time: float = MAX_ALLOWED_ROLLING_AVERAGE_FUNCTION_TIME, pareto_metric: str = 'strict'):
+         n_test_functions: int, n_tuning_trials: int, n_dims: int, output_dir: str, ideas_file: str, pareto_rtol: float = 0.0, n_jobs: int = 1, max_allowed_time_per_function: float = MAX_ALLOWED_PROBLEM_TIME, max_allowed_rolling_average_function_time: float = MAX_ALLOWED_ROLLING_AVERAGE_FUNCTION_TIME, pareto_metric: str = 'strict', log_level: str = 'INFO'):
     """Generate new optimizers using LLMs, sweeping through all inspirations."""
+    setup_logging(log_level)
 
     # Select the appropriate Pareto metric
     if pareto_metric == 'convex_hull':
@@ -890,16 +916,16 @@ def sweep(api_key: str, api_base: str, model: str, start_index: int , n_pareto_a
     )
     ideas = generator.load_emergent_ideas(ideas_file)
     if not ideas:
-        print("No emergent ideas found!")
+        logger.warning("No emergent ideas found!")
         return False
     for inspiration in ideas[start_index:]:
-        print(f"\n=== Sweeping with inspiration: {inspiration} ===")
+        logger.info(f"=== Sweeping with inspiration: {inspiration} ===")
         success = generator.run_generation_cycle(inspiration=inspiration, max_attempts=n_pareto_attempts)
 
         if success:
-            print("\n🎉 Successfully generated a Pareto-improving optimizer!")
+            logger.info("🎉 Successfully generated a Pareto-improving optimizer!")
         else:
-            print("\n😞 Failed to generate a Pareto-improving optimizer")
+            logger.info("😞 Failed to generate a Pareto-improving optimizer")
 
 
 @cli.command()
@@ -920,9 +946,11 @@ def sweep(api_key: str, api_base: str, model: str, start_index: int , n_pareto_a
 @click.option('--ideas-file', default="data/emergent_optimization_ideas.txt", help='File containing emergent optimization ideas')
 @click.option('--n-blend-examples', default=3, type=int, help='Number of code examples to blend for inspiration')
 @click.option('--pareto-metric', default='strict', type=click.Choice(['strict', 'convex_hull']), help='Pareto metric to use: strict dominance or convex hull')
+@click.option('--log-level', default='INFO', type=click.Choice(['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL']), help='Logging level')
 def blend_sweep(api_key: str, api_base: str, model: str, start_index: int , n_pareto_attempts: int, n_tune_functions: int,
-         n_test_functions: int, n_tuning_trials: int, n_dims: int, output_dir: str, ideas_file: str, pareto_rtol: float = 0.0, n_blend_examples: int = 3, n_jobs: int = 1, max_allowed_time_per_function: float = MAX_ALLOWED_PROBLEM_TIME, max_allowed_rolling_average_function_time: float = MAX_ALLOWED_ROLLING_AVERAGE_FUNCTION_TIME, pareto_metric: str = 'strict'):
+         n_test_functions: int, n_tuning_trials: int, n_dims: int, output_dir: str, ideas_file: str, pareto_rtol: float = 0.0, n_blend_examples: int = 3, n_jobs: int = 1, max_allowed_time_per_function: float = MAX_ALLOWED_PROBLEM_TIME, max_allowed_rolling_average_function_time: float = MAX_ALLOWED_ROLLING_AVERAGE_FUNCTION_TIME, pareto_metric: str = 'strict', log_level: str = 'INFO'):
     """Generate new optimizers using LLMs, sweeping through all inspirations and blending with existing performant optimizers."""
+    setup_logging(log_level)
     
     # Select the appropriate Pareto metric
     if pareto_metric == 'convex_hull':
@@ -948,16 +976,16 @@ def blend_sweep(api_key: str, api_base: str, model: str, start_index: int , n_pa
     )
     ideas = generator.load_emergent_ideas(ideas_file)
     if not ideas:
-        print("No emergent ideas found!")
+        logger.warning("No emergent ideas found!")
         return False
     for inspiration in ideas[start_index:]:
-        print(f"\n=== Sweeping with inspiration: {inspiration} ===")
+        logger.info(f"=== Sweeping with inspiration: {inspiration} ===")
         success = generator.run_generation_cycle(inspiration=inspiration, max_attempts=n_pareto_attempts)
 
         if success:
-            print("\n🎉 Successfully generated a Pareto-improving optimizer!")
+            logger.info("🎉 Successfully generated a Pareto-improving optimizer!")
         else:
-            print("\n😞 Failed to generate a Pareto-improving optimizer")
+            logger.info("😞 Failed to generate a Pareto-improving optimizer")
 
 if __name__ == "__main__":
     cli()
