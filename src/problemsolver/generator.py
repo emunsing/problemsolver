@@ -327,13 +327,16 @@ from problemsolver.utils import Interval
     def validate_optimizer_code(self, optimizer_func: Callable, raw_code: str, original_prompt: str, max_iterations: int = 5) -> Tuple[bool, Optional[Callable], str, str]:
         """Validate the optimizer function through multiple iterations of debugging."""
         try:
+            logger.info(f"Validating optimizer annotations")
             check_optimizer_annotations(optimizer_func)
         except ValueError as ve:
             if "No Annotated parameters with Interval" in str(ve):
                 logger.warning(f"Annotation error; continuing: {str(ve)}")
             else:
                 raise ve
+        logger.info(f"Validating optimizer function")
         check_optimizer_function(optimizer_func)
+        logger.info("✓ Optimizer function is valid")
         return True, optimizer_func, raw_code, ""   # If we get here, the function is valid
 
 
@@ -354,12 +357,13 @@ from problemsolver.utils import Interval
                 #     loaded_text = f.read()
                 # optimizer_func, raw_code = self.extract_func_and_code_from_response(loaded_text)
 
-
                 # Validate and debug
                 logger.info(f"Iteration {iteration + 1} optimizer generation: Validating code")
                 success, final_func, final_code, error_msg = self.validate_optimizer_code(optimizer_func,
                                                                           raw_code=raw_code,
                                                                           original_prompt=original_prompt)
+                if success:
+                    break  # Exit loop if successful
             except Exception as e:
                 error_msg = str(e)
                 logger.info(f"Iteration {iteration + 1} optimizer generation: Error - {error_msg}")
