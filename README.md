@@ -63,6 +63,27 @@ Steps:
 1. Constrained with mixed integer variables
 1. Constrained with complementarity constraints <- *this can represent combinatorial problems*
 
+# Setup
+Using MPS on Mac with Apple Silicon requires miniconda3 installed and set up per here. *Ensure that your `conda` points to miniconda3, not anaconda!*
+```
+source ~/miniconda3/bin/activate 
+conda create -n problemsolver-base python=3.12.2
+conda activate problemsolver-base
+pip install poetry
+poetry config virtualenvs.create false
+poetry lock
+poetry install
+
+conda deactivate
+...
+conda create -n problemsolver-analytics python=3.12.2
+....
+poetry install --with torch,analytics
+```
+
+Test implementation with `import torch; torch.backends.mps.is_available()`
+
+
 # problemsolver
 
 See [list of metaheuristic algorithms](https://en.wikipedia.org/wiki/Table_of_metaheuristics)
@@ -108,6 +129,9 @@ LLM-oriented tasks:
 - [ ] Gradient-based models
 - [ ] Integrate GPU operations or measure parallelism
 - [ ] 
+
+
+
 
 Next steps:
 - [x] Parameterize output directory; ensure that CSV is populated
