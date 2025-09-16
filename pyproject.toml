@@ -6,7 +6,7 @@ authors = ["emunsing <eric.munsing@gmail.com>"]
 readme = "README.md"
 
 [tool.poetry.dependencies]
-python = "^3.10"
+python = "3.12.2"
 attrs = "*"
 pytest = "*"
 numpy = "*"
@@ -17,7 +17,21 @@ openai = "*"
 langchain = {version = "*", extras = ["openai"]}
 langchain-openai = "*"
 optuna = "*"
-cloudpickle = "*"
+
+[tool.poetry.group.torch]
+optional = true
+[tool.poetry.group.torch.dependencies]
+torch = "*"
+torchvision = "*"
+
+[tool.poetry.group.analytics]
+optional = true
+[tool.poetry.group.analytics.dependencies]
+plotly = "*"
+jupyter = "*"
+ipykernel = "*"
+seaborn = "*"
+matplotlib = "*"
 
 [build-system]
 requires = ["poetry-core"]
