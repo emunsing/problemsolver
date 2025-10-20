@@ -17,7 +17,7 @@ from typing import List, Dict, Tuple, Optional, Callable
 
 import click
 from langchain_openai.chat_models import ChatOpenAI
-from langchain.schema import HumanMessage, SystemMessage
+from langchain_core.messages import HumanMessage, SystemMessage
 from typing import Annotated
 from problemsolver.utils import check_optimizer_annotations, check_optimizer_function, Interval, Performance, to_camel_case
 from problemsolver.evaluator import benchmark_optimizer, generate_test_functions, MAX_ALLOWED_PROBLEM_TIME, MAX_ALLOWED_ROLLING_AVERAGE_FUNCTION_TIME
@@ -888,7 +888,7 @@ def inspire(api_key: str, api_base: str, model: str, n_pareto_attempts: int, n_t
 @click.option('--max-allowed-rolling-average-function-time', default=MAX_ALLOWED_ROLLING_AVERAGE_FUNCTION_TIME, type=float, help='Maximum allowed rolling average function time')
 @click.option('--output-dir', default="data/output", help='Output directory')
 @click.option('--ideas-file', default="data/emergent_optimization_ideas.txt", help='File containing emergent optimization ideas')
-@click.option('--pareto-metric', default='classic', type=click.Choice(['classic', 'convex_hull']), help='Pareto metric to use: strict dominance or convex hull')
+@click.option('--pareto-metric', default='strict', type=click.Choice(['strict', 'convex_hull']), help='Pareto metric to use: strict dominance or convex hull')
 @click.option('--log-level', default='INFO', type=click.Choice(['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL']), help='Logging level')
 def sweep(api_key: str, api_base: str, model: str, start_index: int , n_pareto_attempts: int, n_tune_functions: int,
          n_test_functions: int, n_tuning_trials: int, n_dims: int, output_dir: str, ideas_file: str, pareto_rtol: float = 0.0, n_jobs: int = 1, max_allowed_time_per_function: float = MAX_ALLOWED_PROBLEM_TIME, max_allowed_rolling_average_function_time: float = MAX_ALLOWED_ROLLING_AVERAGE_FUNCTION_TIME, pareto_metric: str = 'strict', log_level: str = 'INFO'):
@@ -898,7 +898,7 @@ def sweep(api_key: str, api_base: str, model: str, start_index: int , n_pareto_a
     # Select the appropriate Pareto metric
     if pareto_metric == 'convex_hull':
         metric = ConvexHullParetoMetric
-    elif pareto_metric == 'classic':
+    elif pareto_metric == 'strict':
         metric = StrictDominanceParetoMetric
     else:
         raise ValueError(f"Invalid Pareto metric: {pareto_metric}")
@@ -990,6 +990,194 @@ def blend_sweep(api_key: str, api_base: str, model: str, start_index: int , n_pa
             logger.info("🎉 Successfully generated a Pareto-improving optimizer!")
         else:
             logger.info("😞 Failed to generate a Pareto-improving optimizer")
+
+
+
+def reassess_pareto_candidates_from_files(
+    input_fname: os.PathLike,
+    benchmark_fname: os.PathLike,
+    output_fname: os.PathLike,
+    pareto_metric_class: type[ParetoMetric],
+    recompute_pareto_frontier: bool = True,
+    rtol: float = 0.3
+) -> Tuple[int, int]:
+    """
+    Reassess Pareto candidates from all results and save performant ones to output file.
+    
+    Args:
+        input_fname: Path to CSV file with all results
+        benchmark_fname: Path to CSV file with existing performant results
+        output_fname: Path to output CSV file for reassessed performant results
+        pareto_metric_class: ParetoMetric class to use for assessment
+        recompute_pareto_frontier: Re-compute the pareto frontier after each improvement
+        rtol: Relative tolerance for Pareto frontier
+        
+    Returns:
+        Tuple of (improvements_count, total_performant_count)
+    """
+    logger.info(f"Loading all results from {input_fname}")
+    all_results = OptimizerGenerator.load_performance_file(input_fname)
+    logger.info(f"Loaded {len(all_results)} total results")
+    
+    logger.info(f"Loading benchmark results from {benchmark_fname}")
+    performant_results = OptimizerGenerator.load_performance_file(benchmark_fname)
+    logger.info(f"Loaded {len(performant_results)} benchmark results")
+    
+    logger.info(f"Computing existing Pareto frontier")
+    existing_frontier = pareto_metric_class.get_frontier(performant_results)
+    logger.info(f"Existing frontier has {len(existing_frontier)} points")
+    
+    improvements_count = 0
+    for idx, new_result in enumerate(all_results):
+        if (idx + 1) % 100 == 0:
+            logger.info(f"Processed {idx + 1}/{len(all_results)} results...")
+        
+        is_pareto_improvement = pareto_metric_class.is_improvement(new_result, existing_frontier, rtol)
+        if is_pareto_improvement:
+            performant_results.append(new_result)
+            if recompute_pareto_frontier:
+                existing_frontier = pareto_metric_class.get_frontier(performant_results)
+            improvements_count += 1
+            logger.info(f"✓ Found Pareto improvement: {new_result.name}")
+    
+    logger.info(f"Found {improvements_count} new Pareto improvements")
+    logger.info(f"Total performant results: {len(performant_results)}")
+    
+    # Save performant_results to output_fname as CSV
+    logger.info(f"Saving {len(performant_results)} performant results to {output_fname}")
+    with open(output_fname, 'w', newline='') as csvfile:
+        fieldnames = Performance.get_csv_fieldnames()
+        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+        writer.writeheader()
+        for result in performant_results:
+            writer.writerow(result.to_csv_row())
+    
+    logger.info(f"✓ Successfully saved performant results to {output_fname}")
+    
+    return improvements_count, len(performant_results)
+
+
+@cli.command()
+@click.option('--input-fname', required=True, type=click.Path(exists=True), help='Input CSV file with all results')
+@click.option('--benchmark-fname', required=True, type=click.Path(exists=True), help='Benchmark CSV file with existing performant results')
+@click.option('--output-fname', required=True, type=click.Path(), help='Output CSV file for reassessed performant results')
+@click.option('--pareto-metric', default='strict', type=click.Choice(['strict', 'convex_hull']), help='Pareto metric to use: strict dominance or convex hull')
+@click.option('--rtol', default=0.3, type=float, help='Relative tolerance for Pareto frontier (default: 0.3)')
+@click.option('--recompute-pareto-frontier', default=True, type=bool, help='Recompute the pareto frontier after each improvement (default: True)')
+@click.option('--log-level', default='INFO', type=click.Choice(['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL']), help='Logging level')
+def reassess(input_fname: str, benchmark_fname: str, output_fname: str, pareto_metric: str, rtol: float, recompute_pareto_frontier: bool, log_level: str):
+    """Reassess Pareto candidates from a single file and save performant ones to output file."""
+    setup_logging(log_level)
+    
+    # Select the appropriate Pareto metric
+    if pareto_metric == 'convex_hull':
+        metric_class = ConvexHullParetoMetric
+    elif pareto_metric == 'strict':
+        metric_class = StrictDominanceParetoMetric
+    else:
+        raise ValueError(f"Invalid Pareto metric: {pareto_metric}")
+    
+    logger.info(f"Using {pareto_metric} Pareto metric with rtol={rtol}")
+    
+    improvements_count, total_count = reassess_pareto_candidates_from_files(
+        input_fname=input_fname,
+        benchmark_fname=benchmark_fname,
+        output_fname=output_fname,
+        pareto_metric_class=metric_class,
+        recompute_pareto_frontier=recompute_pareto_frontier,
+        rtol=rtol
+    )
+    
+    logger.info(f"=== Reassessment Complete ===")
+    logger.info(f"New improvements: {improvements_count}")
+    logger.info(f"Total performant: {total_count}")
+
+
+@cli.command(name='reassess-dir')
+@click.option('--input-dir', required=True, type=click.Path(exists=True, file_okay=False, dir_okay=True), help='Input directory containing CSV files with all results')
+@click.option('--benchmark-fname', required=True, type=click.Path(exists=True), help='Benchmark CSV file with existing performant results')
+@click.option('--output-dir', required=True, type=click.Path(file_okay=False, dir_okay=True), help='Output directory for reassessed performant results')
+@click.option('--pareto-metric', default='strict', type=click.Choice(['strict', 'convex_hull']), help='Pareto metric to use: strict dominance or convex hull')
+@click.option('--rtol', default=0.3, type=float, help='Relative tolerance for Pareto frontier (default: 0.3)')
+@click.option('--recompute-pareto-frontier', default=True, type=bool, help='Recompute the pareto frontier after each improvement (default: True)')
+@click.option('--pattern', default='*.csv', help='Glob pattern for CSV files to process (default: *.csv)')
+@click.option('--log-level', default='INFO', type=click.Choice(['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL']), help='Logging level')
+def reassess_dir_cli(input_dir: str, benchmark_fname: str, output_dir: str, pareto_metric: str, rtol: float, recompute_pareto_frontier: bool, pattern: str, log_level: str):
+    """Reassess Pareto candidates from all CSV files in a directory and save results to output directory."""
+    build_pareto_for_dir(input_dir=input_dir, benchmark_fname=benchmark_fname, output_dir=output_dir, pareto_metric=pareto_metric, rtol=rtol, recompute_pareto_frontier=recompute_pareto_frontier, pattern=pattern, log_level=log_level)
+
+
+def build_pareto_for_dir(input_dir: str, benchmark_fname: str, output_dir: str, pareto_metric: str, rtol: float, recompute_pareto_frontier: bool, pattern: str, log_level: str):
+    """Reassess Pareto candidates from all CSV files in a directory and save results to output directory."""
+    setup_logging(log_level)
+    
+    # Select the appropriate Pareto metric
+    if pareto_metric == 'convex_hull':
+        metric_class = ConvexHullParetoMetric
+    elif pareto_metric == 'strict':
+        metric_class = StrictDominanceParetoMetric
+    else:
+        raise ValueError(f"Invalid Pareto metric: {pareto_metric}")
+    
+    logger.info(f"Using {pareto_metric} Pareto metric with rtol={rtol}")
+    
+    # Create output directory if it doesn't exist
+    output_path = pathlib.Path(output_dir)
+    output_path.mkdir(parents=True, exist_ok=True)
+    logger.info(f"Output directory: {output_path}")
+    
+    # Find all CSV files in input directory
+    input_path = pathlib.Path(input_dir)
+    csv_files = list(input_path.glob(pattern))
+    
+    if not csv_files:
+        logger.warning(f"No files matching pattern '{pattern}' found in {input_dir}")
+        return
+    
+    logger.info(f"Found {len(csv_files)} CSV files to process")
+    
+    total_improvements = 0
+    processed_files = 0
+    failed_files = []
+    
+    for csv_file in csv_files:
+        logger.info(f"\n{'='*60}")
+        logger.info(f"Processing: {csv_file.name}")
+        logger.info(f"{'='*60}")
+        
+        output_fname = output_path / csv_file.name
+        
+        try:
+            improvements_count, total_count = reassess_pareto_candidates_from_files(
+                input_fname=csv_file,
+                benchmark_fname=benchmark_fname,
+                output_fname=output_fname,
+                pareto_metric_class=metric_class,
+                rtol=rtol,
+                recompute_pareto_frontier=recompute_pareto_frontier
+            )
+            
+            total_improvements += improvements_count
+            processed_files += 1
+            logger.info(f"✓ Completed {csv_file.name}: {improvements_count} improvements, {total_count} total performant")
+            
+        except Exception as e:
+            logger.error(f"✗ Failed to process {csv_file.name}: {str(e)}")
+            failed_files.append(csv_file.name)
+            continue
+    
+    # Summary
+    logger.info(f"\n{'='*60}")
+    logger.info(f"=== Batch Reassessment Complete ===")
+    logger.info(f"{'='*60}")
+    logger.info(f"Files processed successfully: {processed_files}/{len(csv_files)}")
+    logger.info(f"Total new improvements: {total_improvements}")
+    
+    if failed_files:
+        logger.warning(f"Failed files ({len(failed_files)}): {', '.join(failed_files)}")
+    else:
+        logger.info("✓ All files processed successfully!")
+
 
 if __name__ == "__main__":
     cli()
