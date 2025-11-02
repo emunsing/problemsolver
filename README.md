@@ -66,6 +66,13 @@ Steps:
 # Setup
 Using MPS on Mac with Apple Silicon requires miniconda3 installed and set up per here. *Ensure that your `conda` points to miniconda3, not anaconda!*
 ```
+curl -O https://repo.anaconda.com/miniconda/Miniconda3-latest-MacOSX-arm64.sh
+sh Miniconda3-latest-MacOSX-arm64.sh
+~/miniconda3/bin/conda init
+which conda
+```
+Once miniconda3 is set up:
+```
 source ~/miniconda3/bin/activate 
 conda create -n problemsolver-base python=3.12.2
 conda activate problemsolver-base
@@ -89,10 +96,6 @@ Test implementation with `import torch; torch.backends.mps.is_available()`
 See [list of metaheuristic algorithms](https://en.wikipedia.org/wiki/Table_of_metaheuristics)
 
 Solvers:
-- [x] L-BFGS
-- [x] stochastic gradient descent
-- [x] Adam
-- [x] adamw
 - [x] Simulated Annealing
 - [x] Differential Evolution
 - [x] Ant Colony Optimization 
@@ -103,9 +106,18 @@ Solvers:
 - [x] Whale Optimization Algorithm
 - [x] Firefly Algorithm
 
+Mathematical approaches:
+- [x] L-BFGS
+- [ ] conjugate gradient
+- [x] stochastic gradient descent
+- [x] Adam
+- [x] adamw
+
 Combinatoric search algorithms:
 - Cuckoo Search
 - Tabu search
+
+
 
 [Test functions of n dimensions](https://en.wikipedia.org/wiki/Test_functions_for_optimization):
 - Sphere
