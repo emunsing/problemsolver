@@ -5,6 +5,11 @@ from problemsolver.function_generators import ProblemFunction
 
 
 def generate_affine_transformation(n_dims: int):
+    """
+    Generate an orthogonal transformation matrix A_mat and a shift vector `shift`.
+    A_mat is formed by doing QR decomposition on a random normal matrix, then scaling the transformation vectors by
+    randomly generated scales to create a non-isometric transformation.
+    """
     rng = np.random.default_rng()
     scale_range = (0.5, 2.0)
     shift_range = (-5.0, 5.0)
