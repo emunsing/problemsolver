@@ -10,12 +10,12 @@ def generate_affine_transformation(n_dims: int):
     A_mat is formed by doing QR decomposition on a random normal matrix, then scaling the transformation vectors by
     randomly generated scales to create a non-isometric transformation.
     """
-    rng = np.random.default_rng()
+    # rng = np.random.default_rng()
     scale_range = (0.5, 2.0)
     shift_range = (-5.0, 5.0)
-    shift = rng.uniform(*shift_range, size=n_dims)
-    Q, _ = np.linalg.qr(rng.normal(size=(n_dims, n_dims)))
-    scales = rng.uniform(*scale_range, size=n_dims)
+    shift = np.random.uniform(*shift_range, size=n_dims)
+    Q, _ = np.linalg.qr(np.random.normal(size=(n_dims, n_dims)))
+    scales = np.random.uniform(*scale_range, size=n_dims)
     A_mat = Q @ np.diag(scales)
     return A_mat, shift
 
