@@ -70,7 +70,6 @@ def fit_coordinate_problem(n_dims = 2,
                             dataset_size = int(200e3),
                             data_seed = 42,
                             model_seed = 42,
-                           loss_eps=1.0,
                            model_class=Rastrigin) -> ProblemSummary:
 
     device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
@@ -94,10 +93,12 @@ def fit_coordinate_problem(n_dims = 2,
     model = model.to(device)
 
     optimizer = optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
+    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=0.5, patience=3, threshold=0.5,
+                                                     threshold_mode='abs', min_lr=1e-6)
     criterion = nn.MSELoss()
 
     epoch_stats = {}
-    previous_loss = np.inf
+    old_lr = learning_rate
 
     for epoch in range(num_epochs):
         epoch_start_clock = time.time()
@@ -114,10 +115,13 @@ def fit_coordinate_problem(n_dims = 2,
             running_loss += loss.item()
         epoch_time = time.time() - epoch_start_clock
         mean_sample_loss = running_loss / len(train_loader)  # loss.item() is the average loss per item
-        if previous_loss - mean_sample_loss < loss_eps:
-            print(f'Early stopping at epoch {epoch+1} due to minimal loss improvement.')
-            break
-        previous_loss = mean_sample_loss
+        scheduler.step(mean_sample_loss)
+        if scheduler.get_last_lr()[0] != old_lr:
+            print(f"Epoch {epoch+1}: reducing learning rate to {scheduler.get_last_lr()[0]:.2e}")
+            old_lr = scheduler.get_last_lr()[0]
+            if old_lr <= 1e-6:
+                print(f'Early stopping at epoch {epoch+1} due to minimal learning rate.')
+                break
         epoch_stats[epoch] = {'loss': mean_sample_loss,
                               't_elapsed': epoch_time}
         print(f'Epoch [{epoch+1}/{num_epochs}], Loss: {mean_sample_loss:.4f}, time: {epoch_time:.3f}')
@@ -133,16 +137,17 @@ def describe_difference(delta):
     return f"median {delta.median():.2f}, mean {delta.mean():.2f}, max {delta.max():.2f}"
 
 def run_one_problem():
-    n_dims = 2
+    n_dims = 10
     model_seed = 43
-    dataset_size = int(200e3)
-    batch_size = 1028
+    dataset_size = int(100e3)
+    batch_size = 64
     problem_summary = fit_coordinate_problem(
         n_dims=n_dims,
         model_seed=model_seed,
         dataset_size=dataset_size,
         batch_size=batch_size,
-        loss_eps=0.5,
+        num_epochs=200,
+        learning_rate=1e-2,
     )
     a_gap = problem_summary.reference_model.A.data - problem_summary.final_model.A.data.to('cpu')
     b_gap = problem_summary.reference_model.b.data - problem_summary.final_model.b.data.to('cpu')
@@ -162,7 +167,7 @@ def run_one_problem_mlp():
     n_dims = 10
     model_seed = 42
     dataset_size = int(100e3)
-    batch_size = 128
+    batch_size = 64
     problem_summary = fit_coordinate_problem(
         n_dims=n_dims,
         model_seed=model_seed,
@@ -183,13 +188,13 @@ def sweep_hyperparameters():
     base_params = dict(n_dims = 10,
                         model_seed = 42,
                         dataset_size = int(100e3),
-                       num_epochs=300,
-                        batch_size = 4096,
+                       num_epochs=200,
+                        batch_size = 32,
                        learning_rate=1e-4,
                        weight_decay=1e-2,
+                       model_class=RastriginFitter
                        )
-    param_name, param_values = 'batch_size', [32, 64, 128, 256, 512, 1024]
-    # param_name, param_values = 'learning_rate', [1e-4, 5e-4, 1e-3, 5e-3, 1e-2]
+    param_name, param_values = 'batch_size', [16, 32, 64, 128, 256, 512, 1024]
     all_losses = {}
     for p in param_values:
         sweep_params = base_params.copy()
@@ -199,13 +204,12 @@ def sweep_hyperparameters():
         all_losses[p] = problem_summary.summary_stats['loss']
 
     all_losses = pd.DataFrame.from_dict(all_losses, orient='columns')
-    all_losses.to_pickle(f'./plots/output/rastrigin_hyperparam_sweep{param_name}.pkl')
+    all_losses.to_pickle(f'./plots/output/rastrigin_hyperparam_sweep_{param_name}.pkl')
     ax = all_losses.plot(title=f"Hyperparameter sweep for {param_name}", logy=True)
-    ax.grid(axis=1, which='both')
+    ax.grid(axis='y', which='both')
     plt.tight_layout()
-    plt.savefig(f'./output/rastrigin_hyperparam_sweep_{param_name}.png')
+    plt.savefig(f'./plots/rastrigin_hyperparam_sweep_{param_name}.png')
     plt.show()
-
 
 if __name__ == "__main__":
     sweep_hyperparameters()
