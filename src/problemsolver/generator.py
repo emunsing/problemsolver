@@ -873,9 +873,9 @@ def inspire(api_key: str, api_base: str, model: str, n_pareto_attempts: int, n_t
 
 
 @cli.command()
-@click.option('--api-key', required=True, help='OpenAI API key')
-@click.option('--api-base', default=None, help='OpenAI API base URL')
-@click.option('--model', default='o4-mini', help='OpenAI model to use')
+@click.option('--api-key', required=True, help='API key')
+@click.option('--api-base', default=None, help='API base URL')
+@click.option('--model', default='o4-mini', help='API model to use')
 @click.option('--start-index', default=0, type=int, help='Index to start sweeping from')
 @click.option('--n-pareto-attempts', default=5, type=int, help='Number of attempts at pareto improvement')
 @click.option('--n-tune-functions', default=10, type=int, help='Number of functions for tuning')
