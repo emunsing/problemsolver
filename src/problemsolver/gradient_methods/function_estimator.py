@@ -1,4 +1,7 @@
 import attrs
+import cProfile
+import pstats
+from pstats import SortKey
 import pandas as pd
 import torch
 import torch.nn as nn
@@ -7,8 +10,7 @@ import time
 import matplotlib.pyplot as plt
 from torch.utils.data import TensorDataset, DataLoader # provides an iterable of the dataset
 import torch.optim as optim
-from problemsolver.function_generators.fun_nonlinear import generate_affine_transformation
-
+from itertools import product
 
 class TestPolynomial:
     def __init__(self, a: np.ndarray):
@@ -16,6 +18,32 @@ class TestPolynomial:
 
     def evaluate(self, x: np.ndarray) -> np.ndarray:
         return np.polyval(self.a, x)
+
+class MultiPoly:
+    """
+    Random multivariate polynomial evaluator.
+    Supports fixed coefficients, efficient re-evaluation,
+    and arbitrary cross-terms up to a given total degree.
+    """
+    def __init__(self, n_vars: int, degree: int = 7, seed: int | None = None):
+        self.n_vars = n_vars
+        self.degree = degree
+        rng = np.random.default_rng(seed)
+
+        # Enumerate all monomial powers (tuples like (2,0,1))
+        self.powers = [p for p in product(range(degree + 1), repeat=n_vars)
+                       if sum(p) <= degree]
+
+        # Random coefficients for each term
+        self.coefs = rng.standard_normal(len(self.powers))
+
+    def evaluate(self, X: np.ndarray) -> np.ndarray:
+        """Evaluate polynomial at N×n_vars array X."""
+        assert X.shape[1] == self.n_vars
+        terms = [self.coefs[i] * np.prod(X ** p, axis=1)
+                 for i, p in enumerate(self.powers)]
+        return np.sum(terms, axis=0)[:, None] # Ensure we return a [n, 1] tensor
+
 
 class FunctionFitter(nn.Module):
     def __init__(self,
@@ -36,29 +64,38 @@ class FunctionFitter(nn.Module):
         return self.mlp(x)
 
 
-def fit_function_problem(polynomial_degree = 4,
-                        learning_rate = 1e-2,
-                        weight_decay = 1e-2,
-                        max_epochs = 100, # number of epochs
-                        batch_size = 64,
-                        samples_per_epoch = int(10e3),
-                        data_seed = 42,
-                        evaluation_scale = 10.0,
-                        mlp_ratio: float = 50.0,
-                        hidden_layers: int = 1,
-                           ):
+def fit_function_problem(
+        n_dims = 2,
+        polynomial_degree = 4,
+        learning_rate = 1e-2,
+        weight_decay = 1e-2,
+        max_epochs = 100, # number of epochs
+        batch_size = 64,
+        samples_per_epoch = int(10e3),
+        data_seed: int | None = None,
+        model_seed = 42,
+        evaluation_scale = 10.0,
+        mlp_ratio: float = 100.0,
+        hidden_layers: int = 5,
+        plot=True,
+        device=None,
+):
 
-    n_dims = 1
-    device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
+    if device is None:
+        device = "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
+    device = torch.device(device)
 
     # Define reference problem
-    np.random.seed(data_seed)
-    test_fun = TestPolynomial(a=np.random.randn(polynomial_degree))
+    if data_seed is not None:
+        np.random.seed(data_seed)
+        torch.manual_seed(data_seed)
+    # test_fun = TestPolynomial(a=np.random.randn(polynomial_degree))
+    test_fun = MultiPoly(n_vars=n_dims, degree=polynomial_degree, seed=model_seed)
 
-    torch.manual_seed(data_seed)
-    model = FunctionFitter(n_dims=1,
+    model = FunctionFitter(n_dims=n_dims,
                            mlp_ratio=mlp_ratio,
                            hidden_layers=hidden_layers)
+    print(f"Number of trainable parameters: {sum(p.numel() for p in model.parameters() if p.requires_grad)}")
     model = model.to(device)
 
     optimizer = optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
@@ -71,14 +108,22 @@ def fit_function_problem(polynomial_degree = 4,
 
     batches_per_epoch = int(samples_per_epoch // batch_size)
 
-    # Note: We retain the "Epoch" terminology even though we are generating new samples each epoch.
-    # In this context, an "epoch" is a convenience term for
+    x_full = evaluation_scale * torch.rand(int(samples_per_epoch), n_dims, dtype=torch.float32) - evaluation_scale * 0.5
+    y_full = torch.tensor(test_fun.evaluate(x_full.numpy()), dtype=torch.float32)
+    x_mean, x_std = x_full.mean(), x_full.std()
+    y_mean, y_std = y_full.mean(), y_full.std()
+
+    # Normalize
+    x_full = (x_full - x_mean) / x_std
+    y_full = (y_full - y_mean) / y_std
+
+    rolling_loss = [np.inf] * 5
+    # Note: We retain the "Epoch" terminology even though we are continually generating new samples.
+    # In this context, an "epoch" is a convenience term for a cycle of logging and learning rate schedule evaluation.
     for epoch in range(max_epochs):
         epoch_start_clock = time.time()
         model.train()  # Set the model to training mode
         running_loss = 0.0
-        x_full = evaluation_scale * torch.rand(int(samples_per_epoch), n_dims, dtype=torch.float32) - evaluation_scale * 0.5
-        y_full = torch.tensor(test_fun.evaluate(x_full.numpy()), dtype=torch.float32)
 
         for i in range(batch_size, len(x_full), batch_size):
             # Generate batch data
@@ -101,28 +146,100 @@ def fit_function_problem(polynomial_degree = 4,
             if old_lr <= 1e-6:
                 print(f'Early stopping at epoch {epoch+1} due to minimal learning rate.')
                 break
+
         epoch_stats[epoch] = {'loss': mean_sample_loss,
                               't_elapsed': epoch_time}
         print(f'Epoch {epoch+1}, Loss: {mean_sample_loss:.4f}, time: {epoch_time:.3f}')
-    plt.scatter(x.cpu().squeeze(), y.cpu().squeeze(), label='Reference Function')
-    plt.scatter(x.cpu().squeeze(), y_hat.detach().cpu().squeeze(), label='Fitted Function')
-    plt.show()
+        rolling_loss.append(mean_sample_loss)
+        rolling_loss.pop(0)
+        if np.mean(rolling_loss) < 0.001 * n_dims:  # Empirically seems appropriate
+            print(f'Early stopping at epoch {epoch+1} due to meeting loss threshold.')
+            break
+
+    if plot:
+        if n_dims == 1:
+            plt.scatter(x.cpu().squeeze(), y.cpu().squeeze(), label='Reference Function')
+            plt.scatter(x.cpu().squeeze(), y_hat.detach().cpu().squeeze(), label='Fitted Function')
+            plt.show()
+        elif n_dims == 2:
+            fig, ax = plt.subplots(nrows=1, ncols=2, figsize=(10, 5))
+            with torch.no_grad():
+                y_hat = model(x_full.to(device)).cpu()
+
+            vmin = min(y_full.min(), y_hat.min())
+            vmax = max(y_full.max(), y_hat.max())
+
+            ax[0].scatter(x_full[:, 0], x_full[:, 1], c=y_full, vmin=vmin, vmax=vmax)
+            ax[1].scatter(x_full[:, 0], x_full[:, 1], c=y_hat, vmin=vmin, vmax=vmax)
+            plt.show()
+        else:
+            print("Plotting is only supported for 1D or 2D input data.")
+
     epoch_stats = pd.DataFrame.from_dict(epoch_stats, orient='index')
     return epoch_stats
 
+def fit_function_problem_1d():
+    return fit_function_problem(n_dims=1,
+                                polynomial_degree=4,
+                                data_seed=None,
+                                max_epochs=20,
+                                samples_per_epoch=int(10e3),
+                                batch_size=512,
+                                learning_rate=1e-2,
+                                weight_decay=1e-2,
+                                mlp_ratio=10.0,
+                                hidden_layers=1,
+                                plot=True)
+
+
+def fit_function_problem_2d():
+    return fit_function_problem(n_dims=2,
+                                polynomial_degree=4,
+                                data_seed=None,
+                                max_epochs=20,
+                                samples_per_epoch=int(10e3),
+                                batch_size=512,
+                                learning_rate=1e-2,
+                                weight_decay=1e-2,
+                                mlp_ratio=10.0,
+                                hidden_layers=2,
+                                plot=True)
+
+def fit_function_problem_n_d():
+    n_dims = 5
+    start_time = time.time()
+    res = fit_function_problem(n_dims=n_dims,
+                                polynomial_degree=4,
+                                data_seed=None,
+                                max_epochs=200,
+                                samples_per_epoch=int(10e3),
+                                batch_size=512,
+                                learning_rate=1e-2,
+                                weight_decay=1e-2,
+                                mlp_ratio=10.0,
+                                hidden_layers=n_dims,
+                                plot=True,
+                                device="cpu")
+    print(f"Done in {time.time() - start_time:.2f} seconds")
+    return res
+
 
 def sweep_hyperparameters():
+    n_dims = 3
     base_params = dict(
-                       polynomial_degree = 4,
-                       max_epochs=20,
-                       samples_per_epoch=10e3,
+                       n_dims=n_dims,
+                       polynomial_degree=4,
+                       max_epochs=1000,
+                       samples_per_epoch=int(10e3),
                        batch_size = 512,
                        learning_rate=1e-2,
                        weight_decay=1e-2,
                        mlp_ratio=10.0,
-                       hidden_layers=1
+                       hidden_layers=n_dims,
+                        plot=False
                        )
-    param_name, param_values = 'mlp_ratio', [1.0, 2.0, 5.0, 10.0, 20.0, 50.0, 100.0, 200.0, 500.0]
+    param_name, param_values = 'hidden_layers', [max(1, int(np.floor(n_dims*0.6))), n_dims, int(np.ceil(n_dims * 1.5))]
+    param_name, param_values = 'batch_size', [64, 128, 256, 512, 1024]
     all_losses = {}
     summary_stats = pd.DataFrame(columns=["total_time", "final_loss", "n_epochs"])
     for p in param_values:
@@ -142,6 +259,15 @@ def sweep_hyperparameters():
     plt.tight_layout()
     plt.savefig(f'./plots/function_hyperparam_sweep_{param_name}.png')
     plt.show()
+    print("Summary Stats:")
+    print(summary_stats)
 
 if __name__ == "__main__":
-    fit_function_problem()
+    pr = cProfile.Profile()
+    pr.enable()
+    fit_function_problem_n_d()
+    pr.disable()
+    stats = pstats.Stats(pr)
+    stats.strip_dirs()
+    stats.sort_stats(SortKey.CUMULATIVE)
+    stats.print_stats(20)
