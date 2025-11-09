@@ -81,6 +81,7 @@ def fit_function_problem(
         device=None,
 ):
 
+    # Note: On a macbook laptop, "cpu" is faster than "mps" for these small models.
     if device is None:
         device = "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
     device = torch.device(device)
@@ -108,6 +109,7 @@ def fit_function_problem(
 
     batches_per_epoch = int(samples_per_epoch // batch_size)
 
+    # Continually generating new samples by moving this into the epoch loop, but this adds significant overhead (20%)
     x_full = evaluation_scale * torch.rand(int(samples_per_epoch), n_dims, dtype=torch.float32) - evaluation_scale * 0.5
     y_full = torch.tensor(test_fun.evaluate(x_full.numpy()), dtype=torch.float32)
     x_mean, x_std = x_full.mean(), x_full.std()
@@ -225,7 +227,7 @@ def fit_function_problem_n_d():
 
 
 def sweep_hyperparameters():
-    n_dims = 3
+    n_dims = 5
     base_params = dict(
                        n_dims=n_dims,
                        polynomial_degree=4,
@@ -236,7 +238,8 @@ def sweep_hyperparameters():
                        weight_decay=1e-2,
                        mlp_ratio=10.0,
                        hidden_layers=n_dims,
-                        plot=False
+                       plot=False,
+                       device="cpu",
                        )
     param_name, param_values = 'hidden_layers', [max(1, int(np.floor(n_dims*0.6))), n_dims, int(np.ceil(n_dims * 1.5))]
     param_name, param_values = 'batch_size', [64, 128, 256, 512, 1024]
@@ -262,10 +265,11 @@ def sweep_hyperparameters():
     print("Summary Stats:")
     print(summary_stats)
 
+
 if __name__ == "__main__":
     pr = cProfile.Profile()
     pr.enable()
-    fit_function_problem_n_d()
+    sweep_hyperparameters()
     pr.disable()
     stats = pstats.Stats(pr)
     stats.strip_dirs()
