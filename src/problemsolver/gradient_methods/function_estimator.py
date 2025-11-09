@@ -53,7 +53,16 @@ class FunctionFitter(nn.Module):
                  ):
         super(FunctionFitter, self).__init__()
         width = int(n_dims * mlp_ratio)
+        activation = nn.ReLU
         assert hidden_layers >= 1, "Must have at least one hidden layer"
+        layers = [nn.Linear(n_dims, width), activation()]
+        for _ in range(hidden_layers - 1):
+            layers += [nn.Linear(width, width),
+                       nn.BatchNorm1d(width),
+                       activation()]
+        layers += [nn.Linear(width, 1)]
+        mlp = nn.Sequential(*layers)
+
         layers = [nn.Linear(n_dims, width), nn.ReLU()]
         for _ in range(hidden_layers - 1):
             layers += [nn.Linear(width, width), nn.ReLU()]
@@ -104,7 +113,8 @@ def fit_function_problem(
 
     # Continually generating new samples by moving this into the epoch loop, but this adds significant overhead (20%)
     x_full = evaluation_scale * torch.rand(int(samples_per_epoch), n_dims, dtype=torch.float32) - evaluation_scale * 0.5
-    y_full = torch.tensor(test_fun.forward(x_full.numpy()), dtype=torch.float32)
+    with torch.no_grad():
+        y_full = test_fun.forward(x_full)
     x_mean, x_std = x_full.mean(), x_full.std()
     y_mean, y_std = y_full.mean(), y_full.std()
 
@@ -181,6 +191,24 @@ def fit_function_problem_1d():
 
     return fit_function_problem(test_fun=test_fun,
                                 student_model=student_model,
+                                n_dims=n_dims,
+                                data_seed=None,
+                                max_epochs=200,
+                                samples_per_epoch=int(10e3),
+                                batch_size=512,
+                                learning_rate=1e-2,
+                                weight_decay=1e-2,
+                                plot=True)
+
+def fit_student_teacher_problem_1d():
+    n_dims, polynomial_degree = 1, 4
+    mlp_ratio, hidden_layers = 10.0, 3
+    torch.manual_seed(42)
+    teacher = FunctionFitter(n_dims=n_dims, mlp_ratio=mlp_ratio, hidden_layers=hidden_layers)
+    student = FunctionFitter(n_dims=n_dims, mlp_ratio=mlp_ratio, hidden_layers=hidden_layers)
+
+    return fit_function_problem(test_fun=teacher,
+                                student_model=student,
                                 n_dims=n_dims,
                                 data_seed=None,
                                 max_epochs=20,
@@ -271,14 +299,37 @@ def sweep_hyperparameters():
     print("Summary Stats:")
     print(summary_stats)
 
+def plot_n_layers():
+    # Verification of architecture by plotting 1-D test case for a variety of numbers of hidden layers
+    layer_range = [0, 1, 2, 5, 10, 20]
+    mlp_width = 10
+    x = np.linspace(-10, 10, 1000)
+    fig, ax, = plt.subplots(nrows=len(layer_range), ncols=1, figsize=(8, 10))
+    activation = nn.ReLU()
+    for r, n_hidden_layers in enumerate(layer_range):
+        layers = [nn.Linear(1, mlp_width), activation]
+        for _ in range(n_hidden_layers):
+            layers += [nn.Linear(mlp_width, mlp_width),
+                       nn.BatchNorm1d(mlp_width),
+                       activation]
+        layers += [nn.Linear(mlp_width, 1)]
+        mlp = nn.Sequential(*layers)
+
+        with torch.no_grad():
+            y = mlp.forward(torch.tensor(x.tolist()).reshape(-1,1))
+        ax[r].plot(x, y)
+        ax[r].set_ylabel(n_hidden_layers)
+    plt.tight_layout()
+    plt.show()
 
 
 if __name__ == "__main__":
-    pr = cProfile.Profile()
-    pr.enable()
-    sweep_hyperparameters()
-    pr.disable()
-    stats = pstats.Stats(pr)
-    stats.strip_dirs()
-    stats.sort_stats(SortKey.CUMULATIVE)
-    stats.print_stats(20)
+    fit_student_teacher_problem_1d()
+    # pr = cProfile.Profile()
+    # pr.enable()
+    # sweep_hyperparameters()
+    # pr.disable()
+    # stats = pstats.Stats(pr)
+    # stats.strip_dirs()
+    # stats.sort_stats(SortKey.CUMULATIVE)
+    # stats.print_stats(20)
