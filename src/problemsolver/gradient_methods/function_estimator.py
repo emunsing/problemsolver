@@ -16,7 +16,7 @@ class TestPolynomial:
     def __init__(self, a: np.ndarray):
         self.a = a  # Coefficients of the polynomial, highest degree first for horner's method
 
-    def evaluate(self, x: np.ndarray) -> np.ndarray:
+    def forward(self, x: np.ndarray) -> np.ndarray:
         return np.polyval(self.a, x)
 
 class MultiPoly:
@@ -37,7 +37,7 @@ class MultiPoly:
         # Random coefficients for each term
         self.coefs = rng.standard_normal(len(self.powers))
 
-    def evaluate(self, X: np.ndarray) -> np.ndarray:
+    def forward(self, X: np.ndarray) -> np.ndarray:
         """Evaluate polynomial at N×n_vars array X."""
         assert X.shape[1] == self.n_vars
         terms = [self.coefs[i] * np.prod(X ** p, axis=1)
@@ -65,18 +65,16 @@ class FunctionFitter(nn.Module):
 
 
 def fit_function_problem(
-        n_dims = 2,
-        polynomial_degree = 4,
+        test_fun,
+        student_model,
+        n_dims,
         learning_rate = 1e-2,
         weight_decay = 1e-2,
         max_epochs = 100, # number of epochs
         batch_size = 64,
         samples_per_epoch = int(10e3),
         data_seed: int | None = None,
-        model_seed = 42,
         evaluation_scale = 10.0,
-        mlp_ratio: float = 100.0,
-        hidden_layers: int = 5,
         plot=True,
         device=None,
 ):
@@ -90,16 +88,11 @@ def fit_function_problem(
     if data_seed is not None:
         np.random.seed(data_seed)
         torch.manual_seed(data_seed)
-    # test_fun = TestPolynomial(a=np.random.randn(polynomial_degree))
-    test_fun = MultiPoly(n_vars=n_dims, degree=polynomial_degree, seed=model_seed)
 
-    model = FunctionFitter(n_dims=n_dims,
-                           mlp_ratio=mlp_ratio,
-                           hidden_layers=hidden_layers)
-    print(f"Number of trainable parameters: {sum(p.numel() for p in model.parameters() if p.requires_grad)}")
-    model = model.to(device)
+    print(f"Number of trainable parameters: {sum(p.numel() for p in student_model.parameters() if p.requires_grad)}")
+    student_model = student_model.to(device)
 
-    optimizer = optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
+    optimizer = optim.AdamW(student_model.parameters(), lr=learning_rate, weight_decay=weight_decay)
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=0.5, patience=5, threshold=1e-4,
                                                      threshold_mode='rel', min_lr=1e-6)
     criterion = nn.MSELoss()
@@ -111,7 +104,7 @@ def fit_function_problem(
 
     # Continually generating new samples by moving this into the epoch loop, but this adds significant overhead (20%)
     x_full = evaluation_scale * torch.rand(int(samples_per_epoch), n_dims, dtype=torch.float32) - evaluation_scale * 0.5
-    y_full = torch.tensor(test_fun.evaluate(x_full.numpy()), dtype=torch.float32)
+    y_full = torch.tensor(test_fun.forward(x_full.numpy()), dtype=torch.float32)
     x_mean, x_std = x_full.mean(), x_full.std()
     y_mean, y_std = y_full.mean(), y_full.std()
 
@@ -124,7 +117,7 @@ def fit_function_problem(
     # In this context, an "epoch" is a convenience term for a cycle of logging and learning rate schedule evaluation.
     for epoch in range(max_epochs):
         epoch_start_clock = time.time()
-        model.train()  # Set the model to training mode
+        student_model.train()  # Set the model to training mode
         running_loss = 0.0
 
         for i in range(batch_size, len(x_full), batch_size):
@@ -134,7 +127,7 @@ def fit_function_problem(
             optimizer.zero_grad()  # Clear gradients
             x = x.to(device)
             y = y.to(device)
-            y_hat = model(x)  # Forward pass
+            y_hat = student_model(x)  # Forward pass
             loss = criterion(y_hat, y)  # Calculate loss
             loss.backward()  # Backward pass
             optimizer.step()  # Update weights
@@ -166,7 +159,7 @@ def fit_function_problem(
         elif n_dims == 2:
             fig, ax = plt.subplots(nrows=1, ncols=2, figsize=(10, 5))
             with torch.no_grad():
-                y_hat = model(x_full.to(device)).cpu()
+                y_hat = student_model(x_full.to(device)).cpu()
 
             vmin = min(y_full.min(), y_hat.min())
             vmax = max(y_full.max(), y_hat.max())
@@ -181,45 +174,56 @@ def fit_function_problem(
     return epoch_stats
 
 def fit_function_problem_1d():
-    return fit_function_problem(n_dims=1,
-                                polynomial_degree=4,
+    n_dims, polynomial_degree = 1, 4
+    mlp_ratio, hidden_layers = 10.0, 1
+    test_fun = MultiPoly(n_vars=n_dims, degree=polynomial_degree, seed=42)
+    student_model = FunctionFitter(n_dims=n_dims, mlp_ratio=mlp_ratio, hidden_layers=hidden_layers)
+
+    return fit_function_problem(test_fun=test_fun,
+                                student_model=student_model,
+                                n_dims=n_dims,
                                 data_seed=None,
                                 max_epochs=20,
                                 samples_per_epoch=int(10e3),
                                 batch_size=512,
                                 learning_rate=1e-2,
                                 weight_decay=1e-2,
-                                mlp_ratio=10.0,
-                                hidden_layers=1,
                                 plot=True)
 
 
 def fit_function_problem_2d():
-    return fit_function_problem(n_dims=2,
-                                polynomial_degree=4,
+    n_dims, polynomial_degree = 2, 4
+    mlp_ratio, hidden_layers = 10.0, n_dims
+    test_fun = MultiPoly(n_vars=n_dims, degree=polynomial_degree, seed=42)
+    student_model = FunctionFitter(n_dims=n_dims, mlp_ratio=mlp_ratio, hidden_layers=hidden_layers)
+
+    return fit_function_problem(test_fun=test_fun,
+                                student_model=student_model,
+                                n_dims=n_dims,
                                 data_seed=None,
                                 max_epochs=20,
                                 samples_per_epoch=int(10e3),
                                 batch_size=512,
                                 learning_rate=1e-2,
                                 weight_decay=1e-2,
-                                mlp_ratio=10.0,
-                                hidden_layers=2,
                                 plot=True)
 
 def fit_function_problem_n_d():
-    n_dims = 5
+    n_dims, polynomial_degree = 5, 4
+    mlp_ratio, hidden_layers = 10.0, n_dims
+    test_fun = MultiPoly(n_vars=n_dims, degree=polynomial_degree, seed=42)
+    student_model = FunctionFitter(n_dims=n_dims, mlp_ratio=mlp_ratio, hidden_layers=hidden_layers)
+
     start_time = time.time()
-    res = fit_function_problem(n_dims=n_dims,
-                                polynomial_degree=4,
+    res = fit_function_problem(test_fun=test_fun,
+                                student_model=student_model,
+                                n_dims=n_dims,
                                 data_seed=None,
                                 max_epochs=200,
                                 samples_per_epoch=int(10e3),
                                 batch_size=512,
                                 learning_rate=1e-2,
                                 weight_decay=1e-2,
-                                mlp_ratio=10.0,
-                                hidden_layers=n_dims,
                                 plot=True,
                                 device="cpu")
     print(f"Done in {time.time() - start_time:.2f} seconds")
@@ -227,17 +231,19 @@ def fit_function_problem_n_d():
 
 
 def sweep_hyperparameters():
-    n_dims = 5
-    base_params = dict(
+    n_dims, polynomial_degree = 5, 4
+    mlp_ratio, hidden_layers = 10.0, n_dims
+    test_fun = MultiPoly(n_vars=n_dims, degree=polynomial_degree, seed=42)
+    student_model = FunctionFitter(n_dims=n_dims, mlp_ratio=mlp_ratio, hidden_layers=hidden_layers)
+
+    base_params = dict(test_fun=test_fun,
+                       student_model=student_model,
                        n_dims=n_dims,
-                       polynomial_degree=4,
                        max_epochs=1000,
                        samples_per_epoch=int(10e3),
                        batch_size = 512,
                        learning_rate=1e-2,
                        weight_decay=1e-2,
-                       mlp_ratio=10.0,
-                       hidden_layers=n_dims,
                        plot=False,
                        device="cpu",
                        )
@@ -264,6 +270,7 @@ def sweep_hyperparameters():
     plt.show()
     print("Summary Stats:")
     print(summary_stats)
+
 
 
 if __name__ == "__main__":
