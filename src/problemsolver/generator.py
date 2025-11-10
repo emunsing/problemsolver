@@ -10,6 +10,8 @@ import time
 import os
 import sys
 import csv
+import json
+from functools import partial
 import random
 import pathlib
 import importlib.util
@@ -20,8 +22,9 @@ from langchain_openai.chat_models import ChatOpenAI
 from langchain_core.messages import HumanMessage, SystemMessage
 from typing import Annotated
 from problemsolver.utils import check_optimizer_annotations, check_optimizer_function, Interval, Performance, to_camel_case
-from problemsolver.evaluator import benchmark_optimizer, MAX_ALLOWED_PROBLEM_TIME, MAX_ALLOWED_ROLLING_AVERAGE_FUNCTION_TIME
-from problemsolver.function_generators.fun_nonlinear import generate_test_functions
+from problemsolver.evaluator import benchmark_optimizer, MAX_ALLOWED_PROBLEM_TIME, \
+    MAX_ALLOWED_ROLLING_AVERAGE_FUNCTION_TIME, FUNCTION_GENERATORS
+from problemsolver.function_generators.fun_nonlinear import generate_nonconvex_test_functions
 from problemsolver.pareto_metrics import ParetoMetric, StrictDominanceParetoMetric, ConvexHullParetoMetric
 
 import logging
@@ -64,7 +67,7 @@ class OptimizerGenerator:
             openai_api_base=api_base,
             model_name=model_name, request_timeout=300, max_retries=3,
         )
-        self.wrapped_function_generator = wrapped_function_generator or generate_test_functions
+        self.wrapped_function_generator = wrapped_function_generator or generate_nonconvex_test_functions
         self.n_tune_functions = n_tune_functions
         self.n_test_functions = n_test_functions
         self.n_tuning_trials = n_tuning_trials
@@ -790,48 +793,6 @@ Create a complete, runnable Python function that implements your blended, novel 
         return prompt
 
 
-@click.command()
-@click.option('--api-key', required=True, help='OpenAI API key')
-@click.option('--api-base', default=None, help='OpenAI API base URL')
-@click.option('--model', default='o4-mini', help='OpenAI model to use')
-@click.option('--n-pareto-attempts', default=5, type=int, help='Number of attempts at pareto improvement')
-@click.option('--n-tune-functions', default=10, type=int, help='Number of functions for tuning')
-@click.option('--n-test-functions', default=20, type=int, help='Number of functions for testing')
-@click.option('--n-tuning-trials', default=100, type=int, help='Number of tuning trials')
-@click.option('--n-dims', default=5, type=int, help='Number of dimensions for test functions')
-@click.option('--log-level', default='INFO', type=click.Choice(['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL']), help='Logging level')
-def main(api_key: str, api_base: str, model: str, n_pareto_attempts: int, n_tune_functions: int,
-         n_test_functions: int, n_tuning_trials: int, n_dims: int, log_level: str):
-    """Generate new optimizers using LLMs."""
-    setup_logging(log_level)
-    generator = OptimizerGenerator(
-        api_key=api_key,
-        api_base=api_base,
-        model_name=model,
-        n_tune_functions=n_tune_functions,
-        n_test_functions=n_test_functions,
-        n_tuning_trials=n_tuning_trials,
-        n_dims=n_dims
-    )
-    ideas_file = "data/emergent_optimization_ideas.txt"
-    ideas = generator.load_emergent_ideas(ideas_file)
-    if not ideas:
-        logger.warning("No emergent ideas found!")
-        return False
-    # Select random inspiration
-    inspiration = random.choice(ideas)
-    logger.info(f"Inspiration: {inspiration}")
-
-    success = generator.run_generation_cycle(inspiration=inspiration, max_attempts=n_pareto_attempts)
-    
-    if success:
-        logger.info("🎉 Successfully generated a Pareto-improving optimizer!")
-    else:
-        logger.info("😞 Failed to generate a Pareto-improving optimizer")
-    return success
-
-
-
 @click.group()
 def cli():
     pass
@@ -843,21 +804,45 @@ def cli():
 @click.option('--n-pareto-attempts', default=5, type=int, help='Number of attempts at pareto improvement')
 @click.option('--n-tune-functions', default=10, type=int, help='Number of functions for tuning')
 @click.option('--n-test-functions', default=20, type=int, help='Number of functions for testing')
+@click.option('--generator', default='nonconvex', type=str)
+@click.option('--function-generator', default='nonconvex', type=str)
+@click.option('--function-generator-kwargs', default='{}', type=str)
 @click.option('--n-tuning-trials', default=100, type=int, help='Number of tuning trials')
 @click.option('--n-dims', default=5, type=int, help='Number of dimensions for test functions')
+@click.option('--n-jobs', default=1, type=int, help='Number of jobs to use for tuning')
+@click.option('--output-dir', default="data/output", help='Output directory')
 @click.option('--log-level', default='INFO', type=click.Choice(['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL']), help='Logging level')
 def inspire(api_key: str, api_base: str, model: str, n_pareto_attempts: int, n_tune_functions: int,
-         n_test_functions: int, n_tuning_trials: int, n_dims: int, log_level: str):
-    """Generate new optimizers using LLMs."""
+            n_test_functions: int, n_tuning_trials: int, n_dims: int, n_jobs:int, log_level: str,output_dir:str,
+            generator: str = 'nonconvex',
+            function_generator: str = 'nonconvex',
+            function_generator_kwargs='{}',
+            ):
+    """
+    Generate a single new optimizer using LLMs.  This is similar to the below sweep functions,
+    but only tests a single a single randomly chosen idea
+    """
     setup_logging(log_level)
-    generator = OptimizerGenerator(
+
+    generator_pipeline_classes = {'nonconvex': BlendedOptimizerGenerator,
+                                  'sgd': None}
+    generator_pipeline = generator_pipeline_classes[generator]
+
+    test_generator = FUNCTION_GENERATORS[function_generator]
+    function_generator_kwargs = json.loads(function_generator_kwargs)
+    wrapped_function_generator = partial(test_generator, **function_generator_kwargs)
+
+    generator = generator_pipeline(
         api_key=api_key,
         api_base=api_base,
         model_name=model,
+        wrapped_function_generator=wrapped_function_generator,
         n_tune_functions=n_tune_functions,
         n_test_functions=n_test_functions,
         n_tuning_trials=n_tuning_trials,
-        n_dims=n_dims
+        output_dir=output_dir,
+        n_dims=n_dims,
+        n_jobs=n_jobs,
     )
     ideas_file = "data/emergent_optimization_ideas.txt"
     ideas = generator.load_emergent_ideas(ideas_file)
@@ -889,6 +874,9 @@ def inspire(api_key: str, api_base: str, model: str, n_pareto_attempts: int, n_t
 @click.option('--pareto-rtol', default=0.0, type=float, help='Relative tolerance for Pareto frontier')
 @click.option('--n-dims', default=5, type=int, help='Number of dimensions for test functions')
 @click.option('--n-jobs', default=1, type=int, help='Number of jobs to use for tuning')
+@click.option('--generator', default='nonconvex', type=str)
+@click.option('--function-generator', default='nonconvex', type=str)
+@click.option('--function-generator-kwargs', default='{}', type=str)
 @click.option('--max-allowed-time-per-function', default=MAX_ALLOWED_PROBLEM_TIME, type=float, help='Maximum allowed time per function')
 @click.option('--max-allowed-rolling-average-function-time', default=MAX_ALLOWED_ROLLING_AVERAGE_FUNCTION_TIME, type=float, help='Maximum allowed rolling average function time')
 @click.option('--output-dir', default="data/output", help='Output directory')
@@ -896,9 +884,26 @@ def inspire(api_key: str, api_base: str, model: str, n_pareto_attempts: int, n_t
 @click.option('--pareto-metric', default='strict', type=click.Choice(['strict', 'convex_hull']), help='Pareto metric to use: strict dominance or convex hull')
 @click.option('--log-level', default='INFO', type=click.Choice(['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL']), help='Logging level')
 def sweep(api_key: str, api_base: str, model: str, start_index: int , n_pareto_attempts: int, n_tune_functions: int,
-         n_test_functions: int, n_tuning_trials: int, n_dims: int, output_dir: str, ideas_file: str, pareto_rtol: float = 0.0, n_jobs: int = 1, max_allowed_time_per_function: float = MAX_ALLOWED_PROBLEM_TIME, max_allowed_rolling_average_function_time: float = MAX_ALLOWED_ROLLING_AVERAGE_FUNCTION_TIME, pareto_metric: str = 'strict', log_level: str = 'INFO'):
+         n_test_functions: int, n_tuning_trials: int, n_dims: int, output_dir: str, ideas_file: str,
+          pareto_rtol: float = 0.0,
+          n_jobs: int = 1,
+          generator: str = 'nonconvex',
+          function_generator: str = 'nonconvex',
+          function_generator_kwargs='{}',
+          max_allowed_time_per_function: float = MAX_ALLOWED_PROBLEM_TIME,
+          max_allowed_rolling_average_function_time: float = MAX_ALLOWED_ROLLING_AVERAGE_FUNCTION_TIME,
+          pareto_metric: str = 'strict',
+          log_level: str = 'INFO'):
     """Generate new optimizers using LLMs, sweeping through all inspirations."""
     setup_logging(log_level)
+
+    generator_pipeline_classes = {'nonconvex': OptimizerGenerator,
+                                  'sgd': None}
+    generator_pipeline = generator_pipeline_classes[generator]
+
+    test_generator = FUNCTION_GENERATORS[function_generator]
+    function_generator_kwargs = json.loads(function_generator_kwargs)
+    wrapped_function_generator = partial(test_generator, **function_generator_kwargs)
 
     # Select the appropriate Pareto metric
     if pareto_metric == 'convex_hull':
@@ -908,10 +913,11 @@ def sweep(api_key: str, api_base: str, model: str, start_index: int , n_pareto_a
     else:
         raise ValueError(f"Invalid Pareto metric: {pareto_metric}")
     
-    generator = OptimizerGenerator(
+    generator = generator_pipeline(
         api_key=api_key,
         api_base=api_base,
         model_name=model,
+        wrapped_function_generator=wrapped_function_generator,
         n_jobs=n_jobs,
         max_allowed_time_per_function=max_allowed_time_per_function,
         max_allowed_rolling_average_function_time=max_allowed_rolling_average_function_time,
@@ -949,6 +955,9 @@ def sweep(api_key: str, api_base: str, model: str, start_index: int , n_pareto_a
 @click.option('--pareto-rtol', default=0.0, type=float, help='Relative tolerance for Pareto frontier')
 @click.option('--n-dims', default=5, type=int, help='Number of dimensions for test functions')
 @click.option('--n-jobs', default=1, type=int, help='Number of jobs to use for tuning')
+@click.option('--generator', default='nonconvex', type=str)
+@click.option('--function-generator', default='nonconvex', type=str)
+@click.option('--function-generator-kwargs', default='{}', type=str)
 @click.option('--max-allowed-time-per-function', default=MAX_ALLOWED_PROBLEM_TIME, type=float, help='Maximum allowed time per function')
 @click.option('--max-allowed-rolling-average-function-time', default=MAX_ALLOWED_ROLLING_AVERAGE_FUNCTION_TIME, type=float, help='Maximum allowed rolling average function time')
 @click.option('--output-dir', default="data/output", help='Output directory')
@@ -957,20 +966,37 @@ def sweep(api_key: str, api_base: str, model: str, start_index: int , n_pareto_a
 @click.option('--pareto-metric', default='strict', type=click.Choice(['strict', 'convex_hull']), help='Pareto metric to use: strict dominance or convex hull')
 @click.option('--log-level', default='INFO', type=click.Choice(['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL']), help='Logging level')
 def blend_sweep(api_key: str, api_base: str, model: str, start_index: int , n_pareto_attempts: int, n_tune_functions: int,
-         n_test_functions: int, n_tuning_trials: int, n_dims: int, output_dir: str, ideas_file: str, pareto_rtol: float = 0.0, n_blend_examples: int = 3, n_jobs: int = 1, max_allowed_time_per_function: float = MAX_ALLOWED_PROBLEM_TIME, max_allowed_rolling_average_function_time: float = MAX_ALLOWED_ROLLING_AVERAGE_FUNCTION_TIME, pareto_metric: str = 'strict', log_level: str = 'INFO'):
+         n_test_functions: int, n_tuning_trials: int, n_dims: int, output_dir: str, ideas_file: str,
+                pareto_rtol: float = 0.0, n_blend_examples: int = 3, n_jobs: int = 1,
+                max_allowed_time_per_function: float = MAX_ALLOWED_PROBLEM_TIME,
+                max_allowed_rolling_average_function_time: float = MAX_ALLOWED_ROLLING_AVERAGE_FUNCTION_TIME,
+                pareto_metric: str = 'strict',
+                generator: str='nonconvex',
+                function_generator: str='nonconvex',
+                function_generator_kwargs='{}',
+                log_level: str = 'INFO'):
     """Generate new optimizers using LLMs, sweeping through all inspirations and blending with existing performant optimizers."""
     setup_logging(log_level)
-    
+
+    generator_pipeline_classes = {'nonconvex': BlendedOptimizerGenerator,
+                                  'sgd': None}
+    generator_pipeline = generator_pipeline_classes[generator]
+
+    test_generator = FUNCTION_GENERATORS[function_generator]
+    function_generator_kwargs = json.loads(function_generator_kwargs)
+    wrapped_function_generator = partial(test_generator, **function_generator_kwargs)
+
     # Select the appropriate Pareto metric
     if pareto_metric == 'convex_hull':
         metric = ConvexHullParetoMetric()
     else:
         metric = StrictDominanceParetoMetric()
-    
-    generator = BlendedOptimizerGenerator(
+
+    generator = generator_pipeline(
         api_key=api_key,
         api_base=api_base,
         model_name=model,
+        wrapped_function_generator=wrapped_function_generator,
         n_tune_functions=n_tune_functions,
         n_test_functions=n_test_functions,
         n_tuning_trials=n_tuning_trials,

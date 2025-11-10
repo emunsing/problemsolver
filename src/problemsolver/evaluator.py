@@ -2,12 +2,12 @@ from inspect import signature
 from typing import Annotated, Callable, get_origin, get_args
 import json
 from functools import partial
-from problemsolver.function_generators.fun_nonlinear import generate_test_functions
-from problemsolver.utils import Interval
+from problemsolver.utils import Interval, _evaluate_single_function
 from problemsolver.function_generators import ProblemFunction
+from problemsolver.function_generators.fun_torch import generate_mlp_test_models
+from problemsolver.function_generators.fun_nonlinear import generate_nonconvex_test_functions
 import optuna
 import multiprocessing as mp
-import signal
 import time
 import numpy as np
 import click
@@ -20,54 +20,10 @@ MAX_ALLOWED_PROBLEM_TIME = 5.0  # Maximum allowed time for a single problem in s
 MAX_ALLOWED_ROLLING_AVERAGE_FUNCTION_TIME = 2.0
 ROLLING_WINDOW_SIZE = 3
 
-def generate_mlp_test_models(n_samples, n_dims, mlp_ratio=10.0, hidden_layers=2):
-    pass
-
-
-FUNCTION_GENERATORS = {'nonconvex': generate_test_functions,
-                       'mlp': generate_mlp_test_models}
-
 DEFAULT_SAVE_PATH = "src/problemsolver/data/output/optimizer_performance.csv"
 
-
-def _evaluate_single_function(wrapped_func: ProblemFunction,
-                             max_allowed_time_per_function: float,
-                             **kwargs) -> tuple[float, float]:
-    """
-    Worker function to evaluate a single test function.
-    This is intended to be called from a Multiprocessing thread, which requires all arguments be pickled.
-    The wrapped_func.optimizer in ProblemFunction allows us to make the optimizer (natively a callable) into a
-    
-    Args:
-        args_tuple: (test_func, optimum, minimizer, kwargs, max_allowed_time_per_function, max_allowed_rolling_average_function_time)
-    
-    Returns:
-        Tuple of (log_rel_error, problem_time)
-    """
-    
-    # Set up timeout handler for this process
-    def timeout_handler(signum, frame):
-        raise TimeoutError(f"Function evaluation exceeded {max_allowed_time_per_function}s")
-    
-    # Set signal handler for timeout
-    signal.signal(signal.SIGALRM, timeout_handler)
-    signal.alarm(int(max_allowed_time_per_function))
-
-    try:
-        problem_start_time = time.time()
-        loss = wrapped_func.fit_and_report_loss(**kwargs)
-        problem_elapsed_time = time.time() - problem_start_time
-        
-        return loss, problem_elapsed_time
-        
-    finally:
-        # Always cancel the alarm, even if an exception occurred
-        try:
-            signal.alarm(0)
-        except Exception:
-            # Ignore any errors from signal.alarm during cleanup
-            pass
-
+FUNCTION_GENERATORS = {'nonconvex': generate_nonconvex_test_functions,
+                       'mlp': generate_mlp_test_models}
 
 
 def single_thread_multivariate_model_runner(minimizer: Callable,
@@ -348,7 +304,7 @@ def benchmark_all_optimizers(n_tune_functions: int = 2,
         np.random.seed(seed)
 
     # Generate test functions
-    wrapped_function_generator = wrapped_function_generator or generate_test_functions
+    wrapped_function_generator = wrapped_function_generator or generate_nonconvex_test_functions
     tune_functions = wrapped_function_generator(n_samples=n_tune_functions, n_dims=n_dims)
     test_functions = wrapped_function_generator(n_samples=n_test_functions, n_dims=n_dims)
 

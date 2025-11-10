@@ -27,3 +27,7 @@ class FunctionFitter(nn.Module):
 
     def forward(self, x):
         return self.mlp(x)
+
+
+def generate_mlp_test_models(n_samples, n_dims, mlp_ratio=10.0, hidden_layers=2):
+    pass

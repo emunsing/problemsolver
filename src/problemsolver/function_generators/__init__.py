@@ -1,6 +1,7 @@
 from typing import Callable
 import numpy as np
 
+
 class ProblemFunction:
     """A callable class that represents a transformed optimization function."""
 
@@ -13,3 +14,5 @@ class ProblemFunction:
     def fit_and_report_loss(self, **kwargs):
         # Run the optimizer on the function and report the loss
         pass
+
+

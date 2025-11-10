@@ -1,7 +1,7 @@
 import numpy as np
 from typing import Callable, Annotated, Optional, Dict, List, get_origin, get_args
 import attrs
-from problemsolver.function_generators import fun_nonlinear as fun_generator
+from problemsolver.function_generators import fun_nonlinear as fun_generator, ProblemFunction
 import re
 import unicodedata
 import logging
@@ -140,31 +140,70 @@ def check_optimizer_annotations(optimizer: Callable):
     if not has_annotated_param:
         raise ValueError(f"No Annotated parameters with Interval")
 
+#
+# def _optimizer_worker(test_func, initial_guess):
+#     """
+#     Worker function to run an optimizer with timeout protection.
+#     This is a top-level function that can be pickled for multiprocessing.
+#
+#     Args:
+#         test_func: The TransformedFunction object with optimizer assigned
+#         initial_guess: Initial guess for optimization
+#
+#     Returns:
+#         The optimization result
+#     """
+#     # Set up timeout handler for this process
+#     def timeout_handler(signum, frame):
+#         raise TimeoutError(f"Optimizer execution exceeded timeout")
+#
+#     # Set signal handler for timeout
+#     signal.signal(signal.SIGALRM, timeout_handler)
+#     signal.alarm(30)  # Set a reasonable default timeout
+#
+#     try:
+#         # The optimizer is accessible via test_func.optimizer
+#         result = test_func.optimizer(fun=test_func.evaluate_at_x, initial_guess=initial_guess)
+#         return result
+#     finally:
+#         # Always cancel the alarm, even if an exception occurred
+#         try:
+#             signal.alarm(0)
+#         except Exception:
+#             # Ignore any errors from signal.alarm during cleanup
+#             pass
 
-def _optimizer_worker(test_func, initial_guess):
+
+def _evaluate_single_function(wrapped_func: ProblemFunction,
+                              max_allowed_time_per_function: float,
+                              **kwargs) -> tuple[float, float]:
     """
-    Worker function to run an optimizer with timeout protection.
-    This is a top-level function that can be pickled for multiprocessing.
-    
+    Worker function to evaluate a single test function.
+    This is intended to be called from a Multiprocessing thread, which requires all arguments be pickled.
+    The wrapped_func.optimizer in ProblemFunction allows us to make the optimizer (natively a callable) into a
+
     Args:
-        test_func: The TransformedFunction object with optimizer assigned
-        initial_guess: Initial guess for optimization
-    
+        args_tuple: (test_func, optimum, minimizer, kwargs, max_allowed_time_per_function, max_allowed_rolling_average_function_time)
+
     Returns:
-        The optimization result
+        Tuple of (log_rel_error, problem_time)
     """
+
     # Set up timeout handler for this process
     def timeout_handler(signum, frame):
-        raise TimeoutError(f"Optimizer execution exceeded timeout")
-    
+        raise TimeoutError(f"Function evaluation exceeded {max_allowed_time_per_function}s")
+
     # Set signal handler for timeout
     signal.signal(signal.SIGALRM, timeout_handler)
-    signal.alarm(30)  # Set a reasonable default timeout
-    
+    signal.alarm(int(max_allowed_time_per_function))
+
     try:
-        # The optimizer is accessible via test_func.optimizer
-        result = test_func.optimizer(fun=test_func, initial_guess=initial_guess)
-        return result
+        problem_start_time = time.time()
+        loss = wrapped_func.fit_and_report_loss(**kwargs)
+        problem_elapsed_time = time.time() - problem_start_time
+
+        return loss, problem_elapsed_time
+
     finally:
         # Always cancel the alarm, even if an exception occurred
         try:
@@ -193,7 +232,7 @@ def _run_optimizer_with_timeout(optimizer, test_func, initial_guess, timeout_sec
     
     try:
         # Submit the task asynchronously
-        result = pool.apply_async(_optimizer_worker, args=(test_func, initial_guess))
+        result = pool.apply_async(_evaluate_single_function, args=(test_func, timeout_seconds))
         
         # Wait for result with timeout
         return result.get(timeout=timeout_seconds)
@@ -239,7 +278,8 @@ def check_optimizer_function(optimizer: Callable, timeout_seconds: float = 5.0):
     
     try:
         # Run optimizer with timeout protection
-        result_x = _run_optimizer_with_timeout(
+        # TODO: Return a standard result class to allow for better error-checking
+        loss, _ = _run_optimizer_with_timeout(
             optimizer=optimizer, 
             test_func=test_func, 
             initial_guess=np.zeros(n_dims),
@@ -247,19 +287,9 @@ def check_optimizer_function(optimizer: Callable, timeout_seconds: float = 5.0):
         )
     except TimeoutError:
         raise TimeoutError(f"Optimizer execution timed out after {timeout_seconds} seconds")
-    
-    result_f = test_func(result_x)
-    assert result_x is not None, f"Returned None"
-    assert isinstance(result_x, np.ndarray), f"Didn't return numpy array"
-    assert result_x.shape == (n_dims,), f"Returned wrong shape"
 
-    # Check for inf values in result
-    assert not np.any(np.isinf(result_x)), f"Returned inf values in x estimate"
-    assert not np.any(np.isnan(result_x)), f"Returned NaN values in x estimate"
-
-    # Check function value at result
-    assert not np.isinf(result_f), f"Produced solution with inf function value"
-    assert not np.isnan(result_f), f"Produced solution with NaN function value"
+    assert not np.isinf(loss), f"Returned inf values in loss estimate"
+    assert not np.isnan(loss), f"Returned NaN values in loss estimate"
 
 
 class Interval:

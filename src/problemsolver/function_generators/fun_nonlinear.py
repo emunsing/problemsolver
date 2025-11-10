@@ -33,12 +33,17 @@ class TransformedFunction(ProblemFunction):
         self.A_mat, self.shift = generate_affine_transformation(self.n_dims)
         self.optimum_x = np.linalg.solve(self.A_mat, self.optimum_z) + self.shift
         self.optimizer: Callable|None = None  # This code may be assigned either to something which is imported, or created on-the-fly from an LLM response
+        self.fitted = None
     
     def evaluate_at_x(self, x: np.ndarray) -> float:
         """Evaluate the transformed function at point x in the transformed space."""
         x = np.asarray(x)
         z = self.A_mat @ (x - self.shift)
         return self.func_z(z)
+    #
+    # def __call__(self, x: np.ndarray) -> float:
+    #     return self.evaluate_at_x(x)
+    #
 
     def fit_and_report_loss(self, **kwargs) -> float:
         test_func = self.evaluate_at_x
@@ -47,6 +52,7 @@ class TransformedFunction(ProblemFunction):
         assert denominator > MIN_ALLOWED_OPTIMUM_VALUE, "Optimal value should not be near-zero"
 
         x_hat = self.optimizer(fun=test_func, initial_guess=np.zeros(self.n_dims), **kwargs)
+        self.fitted = x_hat
         numerator = np.abs(test_func(x_hat) - test_func(self.optimum_x))
         rel_error = numerator / denominator
 
@@ -157,7 +163,7 @@ if __name__ == "__main__":
         visualize_function(func_z, optimum=optimum, title=f"{func_name} Function")
 
 
-def generate_test_functions(n_samples, n_dims, function_names = None) -> list[tuple[Callable, np.ndarray]]:
+def generate_nonconvex_test_functions(n_samples, n_dims, function_names = None) -> list[tuple[Callable, np.ndarray]]:
     # Generate a list of [function, optimum] pairs
     function_names = function_names or FUNCTIONS_AND_OPTIMA.keys()
     output_functions_and_optima = []
