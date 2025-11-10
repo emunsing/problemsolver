@@ -82,6 +82,7 @@ def fit_function_problem(
         max_epochs = 100, # number of epochs
         batch_size = 64,
         samples_per_epoch = int(10e3),
+        rel_stopping_threshold: float | None = 1e-4,  # Early stopping threshold for MultiPoly problems
         data_seed: int | None = None,
         evaluation_scale = 10.0,
         plot=True,
@@ -121,6 +122,7 @@ def fit_function_problem(
     # Normalize
     x_full = (x_full - x_mean) / x_std
     y_full = (y_full - y_mean) / y_std
+    print("Y std: ", y_full.std())
 
     rolling_loss = [np.inf] * 5
     # Note: We retain the "Epoch" terminology even though we are continually generating new samples.
@@ -129,6 +131,11 @@ def fit_function_problem(
         epoch_start_clock = time.time()
         student_model.train()  # Set the model to training mode
         running_loss = 0.0
+
+        # For shuffling data:
+        idx = np.random.permutation(len(y_full))
+        x_full = x_full[idx]
+        y_full = y_full[idx]
 
         for i in range(batch_size, len(x_full), batch_size):
             # Generate batch data
@@ -157,7 +164,7 @@ def fit_function_problem(
         print(f'Epoch {epoch+1}, Loss: {mean_sample_loss:.4f}, time: {epoch_time:.3f}')
         rolling_loss.append(mean_sample_loss)
         rolling_loss.pop(0)
-        if np.mean(rolling_loss) < 0.001 * n_dims:  # Empirically seems appropriate
+        if rel_stopping_threshold is not None and np.mean(rolling_loss) < rel_stopping_threshold * n_dims:  # Empirically seems appropriate
             print(f'Early stopping at epoch {epoch+1} due to meeting loss threshold.')
             break
 
@@ -193,7 +200,7 @@ def fit_function_problem_1d():
                                 student_model=student_model,
                                 n_dims=n_dims,
                                 data_seed=None,
-                                max_epochs=200,
+                                max_epochs=20,
                                 samples_per_epoch=int(10e3),
                                 batch_size=512,
                                 learning_rate=1e-2,
@@ -201,8 +208,7 @@ def fit_function_problem_1d():
                                 plot=True)
 
 def fit_student_teacher_problem_1d():
-    n_dims, polynomial_degree = 1, 4
-    mlp_ratio, hidden_layers = 10.0, 3
+    n_dims, mlp_ratio, hidden_layers = 1, 10.0, 3
     torch.manual_seed(42)
     teacher = FunctionFitter(n_dims=n_dims, mlp_ratio=mlp_ratio, hidden_layers=hidden_layers)
     student = FunctionFitter(n_dims=n_dims, mlp_ratio=mlp_ratio, hidden_layers=hidden_layers)
@@ -216,7 +222,25 @@ def fit_student_teacher_problem_1d():
                                 batch_size=512,
                                 learning_rate=1e-2,
                                 weight_decay=1e-2,
+                                # rel_stopping_threshold=None,
                                 plot=True)
+
+def fit_student_teacher_problem_nd(n_dims=2, plot=True):
+    mlp_ratio, hidden_layers = 10.0, 3
+    teacher = FunctionFitter(n_dims=n_dims, mlp_ratio=mlp_ratio, hidden_layers=hidden_layers)
+    student = FunctionFitter(n_dims=n_dims, mlp_ratio=mlp_ratio, hidden_layers=hidden_layers)
+
+    return fit_function_problem(test_fun=teacher,
+                                student_model=student,
+                                n_dims=n_dims,
+                                data_seed=None,
+                                max_epochs=20,
+                                samples_per_epoch=int(10e3),
+                                batch_size=512,
+                                learning_rate=1e-2,
+                                weight_decay=1e-2,
+                                # rel_stopping_threshold=None,
+                                plot=plot)
 
 
 def fit_function_problem_2d():
@@ -257,6 +281,16 @@ def fit_function_problem_n_d():
     print(f"Done in {time.time() - start_time:.2f} seconds")
     return res
 
+def fit_many_student_problems():
+    n_dims = 2
+    n_tests = 100
+    summary_stats = pd.DataFrame(columns=["total_time", "final_loss", "n_epochs"])
+    for p in range(100):
+        epoch_stats = fit_student_teacher_problem_nd(n_dims=n_dims, plot=False)
+        summary_stats.loc[p, "total_time"] = epoch_stats['t_elapsed'].sum()
+        summary_stats.loc[p, "final_loss"] = epoch_stats['loss'].iloc[-1]
+        summary_stats.loc[p, "n_epochs"] = len(epoch_stats)
+    all_losses.hist()
 
 def sweep_hyperparameters():
     n_dims, polynomial_degree = 5, 4
@@ -324,12 +358,11 @@ def plot_n_layers():
 
 
 if __name__ == "__main__":
-    fit_student_teacher_problem_1d()
-    # pr = cProfile.Profile()
-    # pr.enable()
-    # sweep_hyperparameters()
-    # pr.disable()
-    # stats = pstats.Stats(pr)
-    # stats.strip_dirs()
-    # stats.sort_stats(SortKey.CUMULATIVE)
-    # stats.print_stats(20)
+    pr = cProfile.Profile()
+    pr.enable()
+    sweep_hyperparameters()
+    pr.disable()
+    stats = pstats.Stats(pr)
+    stats.strip_dirs()
+    stats.sort_stats(SortKey.CUMULATIVE)
+    stats.print_stats(20)

@@ -50,6 +50,8 @@ def _evaluate_single_function(wrapped_func: ProblemFunction,
                              **kwargs) -> tuple[float, float]:
     """
     Worker function to evaluate a single test function.
+    This is intended to be called from a Multiprocessing thread, which requires all arguments be pickled.
+    The wrapped_func.optimizer in ProblemFunction allows us to make the optimizer (natively a callable) into a
     
     Args:
         args_tuple: (test_func, optimum, minimizer, kwargs, max_allowed_time_per_function, max_allowed_rolling_average_function_time)

@@ -54,3 +54,63 @@ NanoGPT speedrun). This will be dependent on many factors, but will include:
 - GPU kernel parallelism
 - Adaptability to a variety of minibatch sizes (GPU memory limitation)
 - GPU rack parallelism
+
+# MVP
+
+For simplicity, let's consider just a teacher-student problem where the teacher has randomly initialized weights,
+and the student has the same architecture as the teacher. Changing the model size/architecture allows us to make this
+arbitrarily complex.
+
+What counts as "solved"? 
+- **algorithm hits a loss threshold**: Good if we can know the loss form ahead of time or can create a lower bound on the loss. **If problems are drawn from different scales, this will require normalizing**.
+- Loss plateau: Could use stopping criteria based on the loss becoming flat, e.g. through a minimum value on a learning rate scheduler
+
+What is a good experimentation format?
+- Create the teacher problem and sample data: on-the-fly data creation can be expensive
+- Define the batch size, learning rate scheduler, and stopping criteria
+- Run the problem until it stops
+- Report the loss and total compute time.  Ideally, also report the memory, and measure GPU parallelism in the proposed model.
+
+evaluator.py:benchmark_optimizer ->  
+- make_optuna_objective(optimizer, func_optima_tuple, ...)
+  - univariate_model_runner(**kwargs)
+    - log_rel_error, mean_time_elapsed = multivariate_model_runner(**kwargs)
+    - 
+- multivariate_model_runner(optimizer, test_functions, ...)
+  - if n_jobs==1: single_thread_multivariate_model_runner(minimizer, func_optima_tuples, **kwargs)
+  - else: _evaluate_single_function(args=[test_func_with_minimizer, ])
+    - test_func(optimum)
+    - x_hat = minimizer(test_func)
+    - numerator = test_func(x_hat)
+
+we're going from 
+```
+optimum = wrapped_func.optimum_x
+test_func = wrapped_func.func_z
+minimizer = wrapped_func.minimizer
+
+x_hat = minimizer(test_func)
+y_hat = test_func(x_hat)
+loss = y_hat - test_func(optimum)
+```
+
+to something like:
+```
+x_train = wrapped_func.x_train
+y_train = wrapped_func.y_train
+optimizer = wrapped_func.optimizer
+x_test = wrapped_func.x_test
+y_test = wrapped_func.y_test
+
+model = fit(optimizer, x_train, y_train)
+y_hat = model(x_test)
+loss = y_hat - y_test
+```
+
+Approach: Move all of this into a new method of wrapped_func, something like fit_and_report_loss()
+
+
+Fundamentally, the shift from functions which can easily be evaluated like func(x) to something that is evaluated like 
+
+
+For simplicity, let's
