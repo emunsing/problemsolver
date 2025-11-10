@@ -1,7 +1,9 @@
 from inspect import signature
 from typing import Annotated, Callable, get_origin, get_args
+import json
+from functools import partial
+from problemsolver.function_generators.fun_nonlinear import generate_test_functions
 from problemsolver.utils import Interval
-from problemsolver.function_generators import fun_nonlinear as fun_generator
 from problemsolver.function_generators import ProblemFunction
 import optuna
 import multiprocessing as mp
@@ -16,31 +18,14 @@ from problemsolver.optimizers import OPTIMIZERS  # Import the mapping
 
 MAX_ALLOWED_PROBLEM_TIME = 5.0  # Maximum allowed time for a single problem in seconds
 MAX_ALLOWED_ROLLING_AVERAGE_FUNCTION_TIME = 2.0
-MIN_ALLOWED_OPTIMUM_VALUE = 1e-3
 ROLLING_WINDOW_SIZE = 3
 
-def generate_test_functions(n_samples, n_dims, function_names = None) -> list[tuple[Callable, np.ndarray]]:
-    # Generate a list of [function, optimum] pairs
-    function_names = function_names or fun_generator.FUNCTIONS_AND_OPTIMA.keys()
-    output_functions_and_optima = []
-    for func_name in function_names:
-        n_func_samples = 0
-        while n_func_samples < n_samples:
-            # Generate a function and its optimum
-            func, optimum_x = fun_generator.get_function_and_optimum(func_name, n_dims=n_dims)
-            if np.abs(func(optimum_x)) <= MIN_ALLOWED_OPTIMUM_VALUE * 1.01:
-                print(f"Skipping {func_name} because its optimal value is near-zero")
-                # Skip to avoid functions with near-zero optimal values which will create log errors
-                continue
-            else:
-                output_functions_and_optima.append((func, optimum_x))
-                n_func_samples += 1
-    return output_functions_and_optima
+def generate_mlp_test_models(n_samples, n_dims, mlp_ratio=10.0, hidden_layers=2):
+    pass
 
-N_DIMS_TUNE = 2
-N_DIMS_TEST = 2
-TUNE_FUNCTIONS = generate_test_functions(n_samples=2, n_dims=N_DIMS_TUNE)
-TEST_FUNCTIONS = generate_test_functions(n_samples=2, n_dims=N_DIMS_TEST)
+
+FUNCTION_GENERATORS = {'nonconvex': generate_test_functions,
+                       'mlp': generate_mlp_test_models}
 
 DEFAULT_SAVE_PATH = "src/problemsolver/data/output/optimizer_performance.csv"
 
@@ -68,28 +53,12 @@ def _evaluate_single_function(wrapped_func: ProblemFunction,
     signal.signal(signal.SIGALRM, timeout_handler)
     signal.alarm(int(max_allowed_time_per_function))
 
-    optimum = wrapped_func.optimum_x
-    test_func = wrapped_func  # Directs to the __call__ method
-    minimizer = wrapped_func.optimizer
-
     try:
         problem_start_time = time.time()
-        
-        denominator = np.abs(test_func(optimum))
-        assert denominator > MIN_ALLOWED_OPTIMUM_VALUE, "Optimal value should not be near-zero"
-        
-        x_hat = minimizer(fun=test_func, initial_guess=np.zeros(len(optimum)), **kwargs)
-        numerator = np.abs(test_func(x_hat) - test_func(optimum))
-        rel_error = numerator / denominator
-        
-        if rel_error <= 1e-12:
-            log_rel_error = -12  # Avoid log-zero issues when very small numbers
-        else:
-            log_rel_error = np.log10(rel_error)
-            
+        loss = wrapped_func.fit_and_report_loss(**kwargs)
         problem_elapsed_time = time.time() - problem_start_time
         
-        return log_rel_error, problem_elapsed_time
+        return loss, problem_elapsed_time
         
     finally:
         # Always cancel the alarm, even if an exception occurred
@@ -102,7 +71,7 @@ def _evaluate_single_function(wrapped_func: ProblemFunction,
 
 
 def single_thread_multivariate_model_runner(minimizer: Callable,
-                              func_optima_tuples: list[tuple[Callable, np.ndarray]], **kwargs) -> tuple[float, float]:
+                              func_optima_tuples: list[tuple[ProblemFunction, np.ndarray]], **kwargs) -> tuple[float, float]:
     """
     Return a univariate metric for performance of the minimizer.  In this case, we use the log of the relative error,
     plus the mean time taken to run the minimization across a set of test functions.
@@ -111,32 +80,26 @@ def single_thread_multivariate_model_runner(minimizer: Callable,
     Full loss should be computed within this. Return the loss value for Optuna to minimize.
     return: float
     """
-    log_rel_errors = []
+    losses = []
     problem_times =  [0.1 * MAX_ALLOWED_PROBLEM_TIME] * 3  # Keep a rolling average of the last 3 problem times, prepopulate with something safe
     time_start = time.time()
 
-    for test_func, optimum in func_optima_tuples:
+    for wrapped_func, optimum in func_optima_tuples:
+        wrapped_func.optimizer = minimizer
         problem_start_time = time.time()
-        denominator = np.abs(test_func(optimum))
-        assert denominator > 1e-3, "Optimal value should not be near-zero"
-        x_hat = minimizer(fun=test_func, initial_guess=np.zeros(len(optimum)), **kwargs)
-        numerator = np.abs(test_func(x_hat) - test_func(optimum))
-        rel_error = numerator / denominator
-        if rel_error <= 1e-12:
-            log_rel_errors.append(-12)  # Avoid log-zero issues when very small numbers
-        else:
-            log_rel_errors.append(np.log10(rel_error))
+        loss = wrapped_func.fit_and_report_loss(**kwargs)
         problem_elapsed_time = time.time() - problem_start_time
         problem_times.append(problem_elapsed_time)
+        losses.append(loss)
         problem_times = problem_times[1:]  # Keep only the last 3 times for averaging
         if np.mean(problem_times) > MAX_ALLOWED_PROBLEM_TIME:
             raise TimeoutError(f"Problem took too long: {problem_elapsed_time:.2f}s")
 
     time_elapsed = time.time() - time_start
     mean_time = time_elapsed / len(func_optima_tuples)
-    print(f"Trial with params {kwargs} took total {time_elapsed:.2f}s, mean time {mean_time:.3f}s, mean log rel errors: {np.mean(log_rel_errors):.3f}")
+    print(f"Trial with params {kwargs} took total {time_elapsed:.03f}s, mean time {mean_time:.3f}s, mean log rel errors: {np.mean(losses):.3f}")
 
-    return np.mean(log_rel_errors), mean_time
+    return np.mean(losses), mean_time
 
 
 def multivariate_model_runner(minimizer: Callable,
@@ -170,7 +133,7 @@ def multivariate_model_runner(minimizer: Callable,
     pool = mp.Pool(processes=min(n_jobs, len(func_optima_tuples)))
 
     args_list = []
-    for test_func, optimum in func_optima_tuples:
+    for test_func, _ in func_optima_tuples:
         test_func.optimizer = minimizer  # Attach the minimizer to the function for use in the worker
         args_list.append((test_func, max_allowed_time_per_function))
 
@@ -305,7 +268,7 @@ def test_minimizer(minimizer_to_test: Callable, test_functions, n_jobs=1):
     log_rel_errors, time_elapsed = multivariate_model_runner(minimizer=minimizer_to_test,
                                                              func_optima_tuples=test_functions,
                                                              n_jobs=n_jobs)
-    print(f"Test results: mean log rel errors = time elapsed = {time_elapsed:.2f}s, mean log rel errors {log_rel_errors:.3f}")
+    print(f"Test results: mean log rel errors = time elapsed = {time_elapsed:.3f}s, mean log rel errors {log_rel_errors:.3f}")
 
 
 def tune_test_minimizer(minimizer_to_test: Callable, tune_functions, test_functions, n_jobs=1, n_tuning_trials: int = 50):
@@ -320,7 +283,7 @@ def tune_test_minimizer(minimizer_to_test: Callable, tune_functions, test_functi
                                                              func_optima_tuples=test_functions,
                                                              n_jobs=n_jobs,
                                                              **best_params)
-    print(f"Test results: mean log rel errors = time elapsed = {time_elapsed:.2f}s, mean log rel errors {log_rel_errors:.3f}")
+    print(f"Test results: mean log rel errors = time elapsed = {time_elapsed:.3f}s, mean log rel errors {log_rel_errors:.3f}")
 
 
 
@@ -358,14 +321,17 @@ def benchmark_optimizer(optimizer: Callable,
 
 
 
-def benchmark_all_optimizers(n_tune_functions: int = 2, n_test_functions: int = 2, 
-                           n_tuning_trials: int = 10, n_dims: int = 2, 
-                           n_jobs: int = 1,
-                           save_fig: str | None = None,
-                           save_csv: str | None = None,
-                           optimizer_names: list[str] | None = None,
-                           max_allowed_time_per_function: float = MAX_ALLOWED_PROBLEM_TIME,
-                           max_allowed_rolling_average_function_time: float = MAX_ALLOWED_ROLLING_AVERAGE_FUNCTION_TIME,
+def benchmark_all_optimizers(n_tune_functions: int = 2,
+                             n_test_functions: int = 2,
+                             n_tuning_trials: int = 10,
+                             wrapped_function_generator: Callable | None = None,
+                             n_dims: int = 2,
+                             n_jobs: int = 1,
+                             save_fig: str | None = None,
+                             save_csv: str | None = None,
+                             optimizer_names: list[str] | None = None,
+                             max_allowed_time_per_function: float = MAX_ALLOWED_PROBLEM_TIME,
+                             max_allowed_rolling_average_function_time: float = MAX_ALLOWED_ROLLING_AVERAGE_FUNCTION_TIME,
                              seed: int | None = None):
     """
     Benchmark optimizers and create a scatter plot.
@@ -382,8 +348,9 @@ def benchmark_all_optimizers(n_tune_functions: int = 2, n_test_functions: int = 
         np.random.seed(seed)
 
     # Generate test functions
-    tune_functions = generate_test_functions(n_samples=n_tune_functions, n_dims=n_dims)
-    test_functions = generate_test_functions(n_samples=n_test_functions, n_dims=n_dims)
+    wrapped_function_generator = wrapped_function_generator or generate_test_functions
+    tune_functions = wrapped_function_generator(n_samples=n_tune_functions, n_dims=n_dims)
+    test_functions = wrapped_function_generator(n_samples=n_test_functions, n_dims=n_dims)
 
     # Get optimizers to test
     if optimizer_names is None:
@@ -428,7 +395,7 @@ def benchmark_all_optimizers(n_tune_functions: int = 2, n_test_functions: int = 
                 'best_params': best_params
             })
             
-            print(f"  ✓ {name}: log_rel_error={log_rel_error:.3f}, time={time_elapsed:.2f}s")
+            print(f"  ✓ {name}: log_rel_error={log_rel_error:.3f}, time={time_elapsed:.3f}s")
             
         except Exception as e:
             print(f"  ✗ {name}: Failed - {str(e)}")
@@ -525,12 +492,18 @@ def cli():
 @click.option('--optimizer', type=click.Choice(list(OPTIMIZERS.keys())), 
               default='minimize_pso', help='Which optimizer to tune')
 @click.option('--n-tune-functions', default=2, help='Number of functions to use for tuning')
+@click.option('--generator', default='nonconvex', type=click.Choice(FUNCTION_GENERATORS.keys()))
+@click.option('--generator-kwargs', default='{}', type=str)
 @click.option('--n-dims', default=2, help='Number of dimensions for the test functions')
 @click.option('--n-jobs', default=1, help='Number of parallel jobs to use')
-def tune(n_tuning_trials, optimizer, n_tune_functions, n_dims, n_jobs):
+def tune(n_tuning_trials, optimizer, n_tune_functions, n_dims, n_jobs, generator, generator_kwargs):
     """Tune hyperparameters for a specific optimizer."""
     minimizer_func = OPTIMIZERS[optimizer]
-    tune_functions = generate_test_functions(n_samples=n_tune_functions, n_dims=n_dims)
+
+    test_generator = FUNCTION_GENERATORS[generator]
+    generator_kwargs = json.loads(generator_kwargs)
+    test_generator_wrapped = partial(test_generator, **generator_kwargs)
+    tune_functions = test_generator_wrapped(n_samples=n_tune_functions, n_dims=n_dims)
     best_params = tune_minimizer(minimizer_to_test=minimizer_func, n_jobs=n_jobs, tune_functions=tune_functions, n_trials=n_tuning_trials)
     
     click.echo(f"Best parameters found for {optimizer}:")
@@ -546,12 +519,18 @@ def tune(n_tuning_trials, optimizer, n_tune_functions, n_dims, n_jobs):
 @click.option('--n-tuning-trials', default=50, help='Number of trials for hyperparameter tuning')
 @click.option('--n-tune-functions', default=2, help='Number of functions to use for tuning')
 @click.option('--n-test-functions', default=2, help='Number of functions to use for testing')
+@click.option('--generator', default='nonconvex', type=click.Choice(FUNCTION_GENERATORS.keys()))
+@click.option('--generator-kwargs', default='{}', type=str)
 @click.option('--n-jobs', default=1, help='Number of parallel jobs to use')
-def tune_test(optimizer, n_tuning_trials, n_tune_functions, n_test_functions, n_dims, n_jobs):
+def tune_test(optimizer, n_tuning_trials, n_tune_functions, n_test_functions, n_dims, n_jobs, generator, generator_kwargs):
     """Test a specific optimizer with tuned parameters."""
     minimizer_func = OPTIMIZERS[optimizer]
-    tune_functions = generate_test_functions(n_samples=n_tune_functions, n_dims=n_dims)
-    test_functions = generate_test_functions(n_samples=n_test_functions, n_dims=n_dims)
+
+    test_generator = FUNCTION_GENERATORS[generator]
+    generator_kwargs = json.loads(generator_kwargs)
+    test_generator_wrapped = partial(test_generator, **generator_kwargs)
+    tune_functions = test_generator_wrapped(n_samples=n_tune_functions, n_dims=n_dims)
+    test_functions = test_generator_wrapped(n_samples=n_test_functions, n_dims=n_dims)
     click.echo(f"Testing {optimizer}...")
     tune_test_minimizer(minimizer_to_test=minimizer_func, tune_functions=tune_functions, test_functions=test_functions, n_tuning_trials=n_tuning_trials, n_jobs=n_jobs)
 
@@ -561,10 +540,16 @@ def tune_test(optimizer, n_tuning_trials, n_tune_functions, n_test_functions, n_
 @click.option('--n-dims', default=2, help='Number of dimensions for the test functions')                      
 @click.option('--n-test-functions', default=2, help='Number of functions to use for testing')
 @click.option('--n-jobs', default=1, help='Number of parallel jobs to use')
-def test(optimizer, n_test_functions, n_dims, n_jobs):
+@click.option('--generator', default='nonconvex', type=click.Choice(FUNCTION_GENERATORS.keys()))
+@click.option('--generator-kwargs', default='{}', type=str)
+def test(optimizer, n_test_functions, n_dims, n_jobs, generator, generator_kwargs):
     """Test a specific optimizer with tuned parameters."""
     minimizer_func = OPTIMIZERS[optimizer]
-    test_functions = generate_test_functions(n_samples=n_test_functions, n_dims=n_dims)
+
+    test_generator = FUNCTION_GENERATORS[generator]
+    generator_kwargs = json.loads(generator_kwargs)
+    test_generator_wrapped = partial(test_generator, **generator_kwargs)
+    test_functions = test_generator_wrapped(n_samples=n_test_functions, n_dims=n_dims)
     click.echo(f"Testing {optimizer}...")
     test_minimizer(minimizer_to_test=minimizer_func, test_functions=test_functions, n_jobs=n_jobs)
 
@@ -590,17 +575,25 @@ def list_optimizers():
 @click.option('--save-csv', default=None, help='Path to save the CSV file')
 @click.option('--n-dims', default=2, help='Number of dimensions for the test functions')
 @click.option('--n-jobs', default=1, help='Number of parallel jobs to use')
+@click.option('--generator', default='nonconvex', type=click.Choice(FUNCTION_GENERATORS.keys()))
+@click.option('--generator-kwargs', default='{}', type=str)
 @click.option('--seed', default=None, type=int, help='Random seed for reproducibility')
 @click.option('--optimizers', multiple=True, type=click.Choice(list(OPTIMIZERS.keys())), 
               help='Specific optimizers to test (can specify multiple times). If not specified, test all optimizers.')
-def benchmark(n_tune_functions, n_test_functions, n_tuning_trials, save_fig, save_csv, n_dims, n_jobs, seed, optimizers):
+def benchmark(n_tune_functions, n_test_functions, n_tuning_trials, save_fig, save_csv, n_dims, n_jobs, seed, optimizers,
+              generator, generator_kwargs):
     """Benchmark optimizers and create a scatter plot."""
     # Convert tuple to list, or None if empty
     optimizer_list = list(optimizers) if optimizers else None
+
+    test_generator = FUNCTION_GENERATORS[generator]
+    generator_kwargs = json.loads(generator_kwargs)
+    test_generator_wrapped = partial(test_generator, **generator_kwargs)
     
     benchmark_all_optimizers(n_tune_functions=n_tune_functions,
                              n_test_functions=n_test_functions,
                              n_tuning_trials=n_tuning_trials,
+                             wrapped_function_generator=test_generator_wrapped,
                              n_dims=n_dims,
                              n_jobs=n_jobs,
                              save_fig=save_fig,

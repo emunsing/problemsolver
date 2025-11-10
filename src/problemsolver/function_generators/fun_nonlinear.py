@@ -1,8 +1,10 @@
 import numpy as np
 from typing import Callable
 import matplotlib.pyplot as plt
+
 from problemsolver.function_generators import ProblemFunction
 
+MIN_ALLOWED_OPTIMUM_VALUE = 1e-3
 
 def generate_affine_transformation(n_dims: int):
     """
@@ -32,11 +34,27 @@ class TransformedFunction(ProblemFunction):
         self.optimum_x = np.linalg.solve(self.A_mat, self.optimum_z) + self.shift
         self.optimizer: Callable|None = None  # This code may be assigned either to something which is imported, or created on-the-fly from an LLM response
     
-    def __call__(self, x: np.ndarray) -> float:
+    def evaluate_at_x(self, x: np.ndarray) -> float:
         """Evaluate the transformed function at point x in the transformed space."""
         x = np.asarray(x)
         z = self.A_mat @ (x - self.shift)
         return self.func_z(z)
+
+    def fit_and_report_loss(self, **kwargs) -> float:
+        test_func = self.evaluate_at_x
+
+        denominator = np.abs(test_func(self.optimum_x))
+        assert denominator > MIN_ALLOWED_OPTIMUM_VALUE, "Optimal value should not be near-zero"
+
+        x_hat = self.optimizer(fun=test_func, initial_guess=np.zeros(self.n_dims), **kwargs)
+        numerator = np.abs(test_func(x_hat) - test_func(self.optimum_x))
+        rel_error = numerator / denominator
+
+        if rel_error <= 1e-12:
+            log_rel_error = -12  # Avoid log-zero issues when very small numbers
+        else:
+            log_rel_error = np.log10(rel_error)
+        return log_rel_error
 
 
 def generate_transformed_function(func_z: Callable[[np.ndarray], float], optimum_z: np.ndarray):
@@ -137,3 +155,22 @@ if __name__ == "__main__":
         print(f"Visualizing {func_name}")
         print(f"Optimum value : {func_z(optimum): .3f} at {optimum}")
         visualize_function(func_z, optimum=optimum, title=f"{func_name} Function")
+
+
+def generate_test_functions(n_samples, n_dims, function_names = None) -> list[tuple[Callable, np.ndarray]]:
+    # Generate a list of [function, optimum] pairs
+    function_names = function_names or FUNCTIONS_AND_OPTIMA.keys()
+    output_functions_and_optima = []
+    for func_name in function_names:
+        n_func_samples = 0
+        while n_func_samples < n_samples:
+            # Generate a function and its optimum
+            func, optimum_x = get_function_and_optimum(func_name, n_dims=n_dims)
+            if np.abs(func.evaluate_at_x(optimum_x)) <= MIN_ALLOWED_OPTIMUM_VALUE * 1.01:
+                print(f"Skipping {func_name} because its optimal value is near-zero")
+                # Skip to avoid functions with near-zero optimal values which will create log errors
+                continue
+            else:
+                output_functions_and_optima.append((func, optimum_x))
+                n_func_samples += 1
+    return output_functions_and_optima

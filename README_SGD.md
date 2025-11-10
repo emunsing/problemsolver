@@ -109,6 +109,10 @@ loss = y_hat - y_test
 
 Approach: Move all of this into a new method of wrapped_func, something like fit_and_report_loss()
 
+currently:
+func_z, optimum_z = FUNCTIONS_AND_OPTIMA
+func_x, optimum_x = TransformedFunction(func_z, optimum_z) <- shift happens here. returned optimum_x is just the func_x.optimum_x
+f = TransformedFunc(x)
 
 Fundamentally, the shift from functions which can easily be evaluated like func(x) to something that is evaluated like 
 

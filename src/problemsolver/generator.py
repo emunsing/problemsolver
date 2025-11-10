@@ -20,7 +20,8 @@ from langchain_openai.chat_models import ChatOpenAI
 from langchain_core.messages import HumanMessage, SystemMessage
 from typing import Annotated
 from problemsolver.utils import check_optimizer_annotations, check_optimizer_function, Interval, Performance, to_camel_case
-from problemsolver.evaluator import benchmark_optimizer, generate_test_functions, MAX_ALLOWED_PROBLEM_TIME, MAX_ALLOWED_ROLLING_AVERAGE_FUNCTION_TIME
+from problemsolver.evaluator import benchmark_optimizer, MAX_ALLOWED_PROBLEM_TIME, MAX_ALLOWED_ROLLING_AVERAGE_FUNCTION_TIME
+from problemsolver.function_generators.fun_nonlinear import generate_test_functions
 from problemsolver.pareto_metrics import ParetoMetric, StrictDominanceParetoMetric, ConvexHullParetoMetric
 
 import logging
@@ -47,6 +48,7 @@ class OptimizerGenerator:
     def __init__(self, api_key: str,
                  api_base: str | None = None,
                  model_name: str = "o4-mini",
+                 wrapped_function_generator: Callable | None = None,
                  n_tune_functions: int = 10,
                  n_test_functions: int = 20,
                  n_tuning_trials: int = 100,
@@ -62,6 +64,7 @@ class OptimizerGenerator:
             openai_api_base=api_base,
             model_name=model_name, request_timeout=300, max_retries=3,
         )
+        self.wrapped_function_generator = wrapped_function_generator or generate_test_functions
         self.n_tune_functions = n_tune_functions
         self.n_test_functions = n_test_functions
         self.n_tuning_trials = n_tuning_trials
@@ -385,8 +388,8 @@ from problemsolver.utils import Interval
         """Benchmark the new optimizer and return performance metrics."""
         try:
             # Generate test functions
-            tune_functions = generate_test_functions(n_samples=self.n_tune_functions, n_dims=self.n_dims)
-            test_functions = generate_test_functions(n_samples=self.n_test_functions, n_dims=self.n_dims)
+            tune_functions = self.wrapped_function_generator(n_samples=self.n_tune_functions, n_dims=self.n_dims)
+            test_functions = self.wrapped_function_generator(n_samples=self.n_test_functions, n_dims=self.n_dims)
 
             # Run benchmark with the function
             log_rel_error, time_elapsed, best_params = benchmark_optimizer(
@@ -643,7 +646,9 @@ Please create an improved version that addresses these specific issues. Focus on
             # Benchmark the optimizer
             try:
                 benchmark_start = time.time()
-                performance = self.benchmark_new_optimizer(final_func, optimizer_name)
+                performance = self.benchmark_new_optimizer(optimizer_func=final_func,
+                                                           optimizer_name=optimizer_name,
+                                                           )
                 logger.info(f"Profiling benchmark {time.time() - benchmark_start:.3f}")
                 if not performance:
                     logger.warning("Benchmarking failed")

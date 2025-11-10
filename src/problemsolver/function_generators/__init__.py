@@ -10,5 +10,6 @@ class ProblemFunction:
         self.optimum_x : np.ndarray
         self.optimizer: Callable | None = None
 
-    def __call__(self, x: np.ndarray) -> float:
+    def fit_and_report_loss(self, **kwargs):
+        # Run the optimizer on the function and report the loss
         pass
