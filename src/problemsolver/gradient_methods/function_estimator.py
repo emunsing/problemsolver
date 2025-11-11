@@ -2,6 +2,9 @@ import attrs
 import cProfile
 import pstats
 from pstats import SortKey
+from typing import Annotated
+from problemsolver.utils import Interval
+from problemsolver.optimizers.sgd.adam import TestOptimizer as SimpleAdam
 import pandas as pd
 import torch
 import torch.nn as nn
@@ -55,11 +58,11 @@ class FunctionFitter(nn.Module):
         width = int(n_dims * mlp_ratio)
         activation = nn.ReLU
         assert hidden_layers >= 1, "Must have at least one hidden layer"
-        layers = [nn.Linear(n_dims, width), activation]
-        for _ in range(n_hidden_layers):
+        layers = [nn.Linear(n_dims, width), activation()]
+        for _ in range(hidden_layers):
             layers += [nn.Linear(width, width),
                        nn.BatchNorm1d(width),
-                       activation]
+                       activation()]
         layers += [nn.Linear(width, 1)]
         self.mlp = nn.Sequential(*layers)
 
@@ -96,7 +99,8 @@ def fit_function_problem(
     print(f"Number of trainable parameters: {sum(p.numel() for p in student_model.parameters() if p.requires_grad)}")
     student_model = student_model.to(device)
 
-    optimizer = optim.AdamW(student_model.parameters(), lr=learning_rate, weight_decay=weight_decay)
+    # optimizer = optim.Adam(student_model.parameters(), lr=learning_rate)#, weight_decay=weight_decay)
+    optimizer = SimpleAdam(student_model.parameters(), lr=learning_rate)
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=0.5, patience=5, threshold=1e-4,
                                                      threshold_mode='rel', min_lr=1e-6)
     criterion = nn.MSELoss()
@@ -143,6 +147,7 @@ def fit_function_problem(
             loss.backward()  # Backward pass
             optimizer.step()  # Update weights
             running_loss += loss.item()
+
         epoch_time = time.time() - epoch_start_clock
         mean_sample_loss = running_loss / batches_per_epoch
         scheduler.step(mean_sample_loss)
@@ -277,14 +282,19 @@ def fit_function_problem_n_d():
 
 def fit_many_student_problems():
     n_dims = 2
-    n_tests = 100
+    n_tests = 5
     summary_stats = pd.DataFrame(columns=["total_time", "final_loss", "n_epochs"])
-    for p in range(100):
+    for p in range(n_tests):
         epoch_stats = fit_student_teacher_problem_nd(n_dims=n_dims, plot=False)
         summary_stats.loc[p, "total_time"] = epoch_stats['t_elapsed'].sum()
         summary_stats.loc[p, "final_loss"] = epoch_stats['loss'].iloc[-1]
         summary_stats.loc[p, "n_epochs"] = len(epoch_stats)
-    all_losses.hist()
+    print(summary_stats)
+    print("Summary:")
+    print(summary_stats.describe())
+    summary_stats['final_loss'].hist()
+    plt.show()
+
 
 def sweep_hyperparameters():
     n_dims, polynomial_degree = 5, 4
@@ -352,11 +362,12 @@ def plot_n_layers():
 
 
 if __name__ == "__main__":
-    pr = cProfile.Profile()
-    pr.enable()
-    sweep_hyperparameters()
-    pr.disable()
-    stats = pstats.Stats(pr)
-    stats.strip_dirs()
-    stats.sort_stats(SortKey.CUMULATIVE)
-    stats.print_stats(20)
+    fit_many_student_problems()
+    # pr = cProfile.Profile()
+    # pr.enable()
+    # sweep_hyperparameters()
+    # pr.disable()
+    # stats = pstats.Stats(pr)
+    # stats.strip_dirs()
+    # stats.sort_stats(SortKey.CUMULATIVE)
+    # stats.print_stats(20)

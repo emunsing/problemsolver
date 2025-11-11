@@ -14,9 +14,9 @@ __all__.extend(bioinspired_all)
 # from problemsolver.optimizers.numeric import __all__ as numeric_all
 # __all__.extend(numeric_all)
 #
-# # Add SGD optimizers
-# from problemsolver.optimizers.sgd import __all__ as sgd_all
-# __all__.extend(sgd_all)
+# Add SGD optimizers
+from problemsolver.optimizers.sgd import __all__ as sgd_all
+__all__.extend(sgd_all)
 
 # Create a mapping of optimizer names to functions
 OPTIMIZERS = {}
