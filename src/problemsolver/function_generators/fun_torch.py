@@ -76,6 +76,9 @@ class MLPTestProblem(ProblemFunction):
         # Kwargs are optimizer kwargs
         # Standard SGD loop, testing the optimizer performance to reach the target
         training_model = deepcopy(self.unfitted_model)
+        logger.info(
+            f"Number of trainable parameters: {sum(p.numel() for p in training_model.parameters() if p.requires_grad)}")
+
         training_model.to(self.device)
         train_loader = DataLoader(TensorDataset(self.x_train, self.y_train),
                                   batch_size=self.batch_size,
@@ -104,6 +107,7 @@ class MLPTestProblem(ProblemFunction):
                 optimizer.step()
                 running_loss += loss.item()
 
+            epoch_elapsed = time.time() - epoch_start
             mean_sample_loss = running_loss / len(train_loader)
             scheduler.step(mean_sample_loss)
 
@@ -115,7 +119,6 @@ class MLPTestProblem(ProblemFunction):
                 logger.info(f'Early stopping at epoch {epoch + 1} due to loss target achieved.')
                 break
 
-            epoch_elapsed = time.time() - epoch_start
             logger.info(f'Epoch {epoch + 1}/{self.max_epochs}, Loss: {mean_sample_loss:.6f}, Time Elapsed: {epoch_elapsed:.3f}s')
             if epoch_elapsed > self.max_epoch_time:
                 raise TimeoutError(f"Epoch took too long; {epoch_elapsed:.3f} > {self.max_epoch_time}")
@@ -128,7 +131,8 @@ def generate_mlp_test_models(n_samples, n_dims, mlp_ratio=10.0, hidden_layers=2,
                              n_train_samples=10e3,
                              n_test_samples=1e3,
                              batch_size=32,
-                             max_epochs=100,
+                             max_epochs=50,
+                             device=None,
                              ) -> list[ProblemFunction]:
     test_functions = []
     for i in range(n_samples):
@@ -140,6 +144,7 @@ def generate_mlp_test_models(n_samples, n_dims, mlp_ratio=10.0, hidden_layers=2,
                                    n_test_samples=n_test_samples,
                                    batch_size=batch_size,
                                    max_epochs=max_epochs,
+                                   device=device,
                                    )
         test_functions.append((test_func, None))
     return test_functions

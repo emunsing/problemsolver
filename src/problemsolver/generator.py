@@ -21,7 +21,7 @@ import click
 from langchain_openai.chat_models import ChatOpenAI
 from langchain_core.messages import HumanMessage, SystemMessage
 from typing import Annotated
-from problemsolver.utils import check_optimizer_annotations, check_optimizer_function, Interval, Performance, to_camel_case
+from problemsolver.utils import check_optimizer_annotations, check_optimizer_function, Interval, Performance, to_camel_case, setup_logging
 from problemsolver.evaluator import benchmark_optimizer, MAX_ALLOWED_PROBLEM_TIME, \
     MAX_ALLOWED_ROLLING_AVERAGE_FUNCTION_TIME, FUNCTION_GENERATORS
 from problemsolver.function_generators.fun_nonlinear import generate_nonconvex_test_functions
@@ -29,18 +29,6 @@ from problemsolver.pareto_metrics import ParetoMetric, StrictDominanceParetoMetr
 
 import logging
 
-def setup_logging(log_level: str = "INFO"):
-    """Configure logging with the specified level."""
-    numeric_level = getattr(logging, log_level.upper(), None)
-    if not isinstance(numeric_level, int):
-        raise ValueError(f'Invalid log level: {log_level}')
-    
-    logging.basicConfig(
-        format='%(asctime)s - %(levelname)s - %(message)s',
-        datefmt='%Y-%m-%d %H:%M:%S',
-        level=numeric_level,
-        force=True  # Override any existing configuration
-    )
 
 # Set up default logging
 setup_logging("INFO")

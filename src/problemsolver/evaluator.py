@@ -2,7 +2,7 @@ from inspect import signature
 from typing import Annotated, Callable, get_origin, get_args
 import json
 from functools import partial
-from problemsolver.utils import Interval, _evaluate_single_function
+from problemsolver.utils import Interval, _evaluate_single_function, setup_logging
 from problemsolver.function_generators import ProblemFunction
 from problemsolver.function_generators.fun_torch import generate_mlp_test_models
 from problemsolver.function_generators.fun_nonlinear import generate_nonconvex_test_functions
@@ -452,8 +452,10 @@ def cli():
 @click.option('--generator-kwargs', default='{}', type=str)
 @click.option('--n-dims', default=2, help='Number of dimensions for the test functions')
 @click.option('--n-jobs', default=1, help='Number of parallel jobs to use')
-def tune(n_tuning_trials, optimizer, n_tune_functions, n_dims, n_jobs, generator, generator_kwargs):
+@click.option('--log-level', default='INFO', type=click.Choice(['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL']), help='Logging level')
+def tune(n_tuning_trials, optimizer, n_tune_functions, n_dims, n_jobs, generator, generator_kwargs, log_level):
     """Tune hyperparameters for a specific optimizer."""
+    setup_logging(log_level)
     minimizer_func = OPTIMIZERS[optimizer]
 
     test_generator = FUNCTION_GENERATORS[generator]
@@ -478,8 +480,10 @@ def tune(n_tuning_trials, optimizer, n_tune_functions, n_dims, n_jobs, generator
 @click.option('--generator', default='nonconvex', type=click.Choice(FUNCTION_GENERATORS.keys()))
 @click.option('--generator-kwargs', default='{}', type=str)
 @click.option('--n-jobs', default=1, help='Number of parallel jobs to use')
-def tune_test(optimizer, n_tuning_trials, n_tune_functions, n_test_functions, n_dims, n_jobs, generator, generator_kwargs):
+@click.option('--log-level', default='INFO', type=click.Choice(['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL']), help='Logging level')
+def tune_test(optimizer, n_tuning_trials, n_tune_functions, n_test_functions, n_dims, n_jobs, generator, generator_kwargs, log_level):
     """Test a specific optimizer with tuned parameters."""
+    setup_logging(log_level)
     minimizer_func = OPTIMIZERS[optimizer]
 
     test_generator = FUNCTION_GENERATORS[generator]
@@ -498,8 +502,10 @@ def tune_test(optimizer, n_tuning_trials, n_tune_functions, n_test_functions, n_
 @click.option('--n-jobs', default=1, help='Number of parallel jobs to use')
 @click.option('--generator', default='nonconvex', type=click.Choice(FUNCTION_GENERATORS.keys()))
 @click.option('--generator-kwargs', default='{}', type=str)
-def test(optimizer, n_test_functions, n_dims, n_jobs, generator, generator_kwargs):
+@click.option('--log-level', default='INFO', type=click.Choice(['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL']), help='Logging level')
+def test(optimizer, n_test_functions, n_dims, n_jobs, generator, generator_kwargs, log_level):
     """Test a specific optimizer with tuned parameters."""
+    setup_logging(log_level)
     minimizer_func = OPTIMIZERS[optimizer]
 
     test_generator = FUNCTION_GENERATORS[generator]
@@ -512,8 +518,10 @@ def test(optimizer, n_test_functions, n_dims, n_jobs, generator, generator_kwarg
 
 
 @cli.command()
-def list_optimizers():
+@click.option('--log-level', default='INFO', type=click.Choice(['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL']), help='Logging level')
+def list_optimizers(log_level):
     """List all available optimizers."""
+    setup_logging(log_level)
     click.echo("Available optimizers:")
     click.echo("-" * 40)
     for i, name in enumerate(sorted(OPTIMIZERS.keys()), 1):
@@ -536,9 +544,11 @@ def list_optimizers():
 @click.option('--seed', default=None, type=int, help='Random seed for reproducibility')
 @click.option('--optimizers', multiple=True, type=click.Choice(list(OPTIMIZERS.keys())), 
               help='Specific optimizers to test (can specify multiple times). If not specified, test all optimizers.')
+@click.option('--log-level', default='INFO', type=click.Choice(['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL']), help='Logging level')
 def benchmark(n_tune_functions, n_test_functions, n_tuning_trials, save_fig, save_csv, n_dims, n_jobs, seed, optimizers,
-              generator, generator_kwargs):
+              generator, generator_kwargs, log_level):
     """Benchmark optimizers and create a scatter plot."""
+    setup_logging(log_level)
     # Convert tuple to list, or None if empty
     optimizer_list = list(optimizers) if optimizers else None
 
