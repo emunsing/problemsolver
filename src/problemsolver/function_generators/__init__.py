@@ -1,15 +1,12 @@
-from typing import Callable
-import numpy as np
+from typing import Callable, Any
 
 
 class ProblemFunction:
     """A callable class that represents a transformed optimization function."""
 
-    def __init__(self, func_z: Callable[[np.ndarray], float], optimum_z: np.ndarray):
-        self.func_z: Callable
-        self.optimum_z: np.ndarray
-        self.optimum_x : np.ndarray
+    def __init__(self):
         self.optimizer: Callable | None = None
+        self.fitted: Any | None = None
 
     def fit_and_report_loss(self, **kwargs):
         # Run the optimizer on the function and report the loss

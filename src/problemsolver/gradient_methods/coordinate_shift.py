@@ -9,6 +9,12 @@ from torch.utils.data import TensorDataset, DataLoader # provides an iterable of
 import torch.optim as optim
 from problemsolver.function_generators.fun_nonlinear import generate_affine_transformation
 
+"""
+This file uses a deep learning model to learn the coordinate transform which was used for a defined function type.
+The loss space for this may be very rough, making optimization extremely difficult (especially e.g. for rastrigin 
+when we are shifted one row/column over)
+"""
+
 class Rastrigin(nn.Module):
     def __init__(self,
                  A:torch.Tensor|None = None,
