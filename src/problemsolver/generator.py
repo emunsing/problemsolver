@@ -23,7 +23,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from typing import Annotated
 from problemsolver.utils import check_optimizer_annotations, check_optimizer_function, Interval, Performance, to_camel_case, setup_logging
 from problemsolver.evaluator import benchmark_optimizer, MAX_ALLOWED_PROBLEM_TIME, \
-    MAX_ALLOWED_ROLLING_AVERAGE_FUNCTION_TIME, FUNCTION_GENERATORS
+    MAX_ALLOWED_ROLLING_AVERAGE_FUNCTION_TIME, FUNCTION_GENERATORS_AND_TIMEOUTS
 from problemsolver.function_generators.fun_nonlinear import generate_nonconvex_test_functions
 from problemsolver.pareto_metrics import ParetoMetric, StrictDominanceParetoMetric, ConvexHullParetoMetric
 
@@ -816,7 +816,7 @@ def inspire(api_key: str, api_base: str, model: str, n_pareto_attempts: int, n_t
                                   'sgd': None}
     generator_pipeline = generator_pipeline_classes[generator]
 
-    test_generator = FUNCTION_GENERATORS[function_generator]
+    test_generator = FUNCTION_GENERATORS_AND_TIMEOUTS[function_generator]
     function_generator_kwargs = json.loads(function_generator_kwargs)
     wrapped_function_generator = partial(test_generator, **function_generator_kwargs)
 
@@ -889,7 +889,7 @@ def sweep(api_key: str, api_base: str, model: str, start_index: int , n_pareto_a
                                   'sgd': None}
     generator_pipeline = generator_pipeline_classes[generator]
 
-    test_generator = FUNCTION_GENERATORS[function_generator]
+    test_generator = FUNCTION_GENERATORS_AND_TIMEOUTS[function_generator]
     function_generator_kwargs = json.loads(function_generator_kwargs)
     wrapped_function_generator = partial(test_generator, **function_generator_kwargs)
 
@@ -970,7 +970,7 @@ def blend_sweep(api_key: str, api_base: str, model: str, start_index: int , n_pa
                                   'sgd': None}
     generator_pipeline = generator_pipeline_classes[generator]
 
-    test_generator = FUNCTION_GENERATORS[function_generator]
+    test_generator = FUNCTION_GENERATORS_AND_TIMEOUTS[function_generator]
     function_generator_kwargs = json.loads(function_generator_kwargs)
     wrapped_function_generator = partial(test_generator, **function_generator_kwargs)
 

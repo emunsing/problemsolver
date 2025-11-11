@@ -10,7 +10,7 @@ class TestOptimizer(torch.optim.Optimizer):
         params,
         lr: Annotated[float, Interval(low=1e-5, high=1e-2, log=True)] = 1e-3,
         beta1: Annotated[float, Interval(low=0.8, high=0.99, step=0.05, log=False)] = 0.9,
-        weight_decay: Annotated[float, Interval(low=0.0, high=1e-2, step=1e-3, log=True)] = 0.0,
+        weight_decay: Annotated[float, Interval(low=1e-9, high=1e-2, step=1e-3, log=True)] = 1e-9,
         beta2: float = 0.999,
         eps: float = 1e-8,
     ):
