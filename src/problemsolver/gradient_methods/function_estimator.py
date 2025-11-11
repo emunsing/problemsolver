@@ -55,17 +55,11 @@ class FunctionFitter(nn.Module):
         width = int(n_dims * mlp_ratio)
         activation = nn.ReLU
         assert hidden_layers >= 1, "Must have at least one hidden layer"
-        layers = [nn.Linear(n_dims, width), activation()]
-        for _ in range(hidden_layers - 1):
+        layers = [nn.Linear(n_dims, width), activation]
+        for _ in range(n_hidden_layers):
             layers += [nn.Linear(width, width),
                        nn.BatchNorm1d(width),
-                       activation()]
-        layers += [nn.Linear(width, 1)]
-        mlp = nn.Sequential(*layers)
-
-        layers = [nn.Linear(n_dims, width), nn.ReLU()]
-        for _ in range(hidden_layers - 1):
-            layers += [nn.Linear(width, width), nn.ReLU()]
+                       activation]
         layers += [nn.Linear(width, 1)]
         self.mlp = nn.Sequential(*layers)
 
