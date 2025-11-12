@@ -98,13 +98,15 @@ class MLPTestProblem(ProblemFunction):
             running_loss = 0.0
 
             for x, y in train_loader:
-                optimizer.zero_grad()
                 x = x.to(self.device)
                 y = y.to(self.device)
-                y_hat = training_model(x)  # Forward pass
-                loss = criterion(y_hat, y)  # Calculate loss
-                loss.backward()  # Backward pass
-                optimizer.step()
+                def closure():
+                    optimizer.zero_grad()
+                    y_hat = training_model(x)
+                    loss = criterion(y_hat, y)
+                    loss.backward()
+                    return loss
+                loss = optimizer.step(closure)
                 running_loss += loss.item()
 
             epoch_elapsed = time.time() - epoch_start

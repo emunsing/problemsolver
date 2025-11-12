@@ -266,7 +266,7 @@ from problemsolver.utils import Interval
 
 {code}
 """
-    
+
     def _create_package_function(self, code: str) -> Callable:
         """Create a pickleable function by writing code to a file in the package hierarchy."""
         import uuid
