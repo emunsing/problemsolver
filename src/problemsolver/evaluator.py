@@ -21,7 +21,7 @@ ROLLING_WINDOW_SIZE = 3
 DEFAULT_SAVE_PATH = "src/problemsolver/data/output/optimizer_performance.csv"
 
 FUNCTION_GENERATORS_AND_TIMEOUTS = {'nonconvex': (generate_nonconvex_test_functions, 5.0, 2.0),  # MAX_ALLOWED_PROBLEM_TIME, MAX_ALLOWED_ROLLING_AVERAGE_FUNCTION_TIME
-                                    'mlp': (generate_mlp_test_models, 10.0, 5.0)
+                                    'mlp': (generate_mlp_test_models, 20.0, 10.0)
                                     }
 _, MAX_ALLOWED_PROBLEM_TIME, MAX_ALLOWED_ROLLING_AVERAGE_FUNCTION_TIME = FUNCTION_GENERATORS_AND_TIMEOUTS['nonconvex']
 

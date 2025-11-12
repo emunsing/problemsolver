@@ -267,6 +267,27 @@ from problemsolver.utils import Interval
 {code}
 """
 
+    def _load_package_function(self, file_path: os.PathLike, module_name: str):
+        # Import the module using the full package path
+        full_module_name = f"problemsolver.data.temp.{module_name}"
+        spec = importlib.util.spec_from_file_location(full_module_name, file_path)
+        temp_module = importlib.util.module_from_spec(spec)
+
+        # Register the module in sys.modules
+        sys.modules[full_module_name] = temp_module
+
+        # Execute the module
+        spec.loader.exec_module(temp_module)
+
+        # Get the minimize function from the module
+        optimizer_func = temp_module.minimize
+
+        # Store the file path and module name for cleanup
+        optimizer_func._temp_file_path = str(file_path)
+        optimizer_func._temp_module_name = full_module_name
+
+        return optimizer_func
+
     def _create_package_function(self, code: str) -> Callable:
         """Create a pickleable function by writing code to a file in the package hierarchy."""
         import uuid
@@ -292,25 +313,7 @@ from problemsolver.utils import Interval
             f.write(full_code)
         
         try:
-            # Import the module using the full package path
-            full_module_name = f"problemsolver.data.temp.{module_name}"
-            spec = importlib.util.spec_from_file_location(full_module_name, file_path)
-            temp_module = importlib.util.module_from_spec(spec)
-            
-            # Register the module in sys.modules
-            sys.modules[full_module_name] = temp_module
-            
-            # Execute the module
-            spec.loader.exec_module(temp_module)
-            
-            # Get the minimize function from the module
-            optimizer_func = temp_module.minimize
-            
-            # Store the file path and module name for cleanup
-            optimizer_func._temp_file_path = str(file_path)
-            optimizer_func._temp_module_name = full_module_name
-            
-            return optimizer_func
+            return self._load_package_function(file_path, module_name)
             
         except Exception as e:
             # Clean up the file if there was an error
@@ -331,7 +334,9 @@ from problemsolver.utils import Interval
             else:
                 raise ve
         logger.info(f"Validating optimizer function")
-        check_optimizer_function(optimizer_func)
+        test_func_list = self.wrapped_function_generator(n_samples=self.n_tune_functions, n_dims=self.n_dims)
+        test_func, optimum = test_func_list[0]
+        check_optimizer_function(optimizer_func, test_func=test_func, timeout_seconds=self.max_allowed_time_per_function)
         logger.info("✓ Optimizer function is valid")
         return True, optimizer_func, raw_code, ""   # If we get here, the function is valid
 
@@ -349,7 +354,7 @@ from problemsolver.utils import Interval
                 response = self.llm.invoke(messages)
                 logger.info(f"Iteration {iteration + 1} optimizer generation: Response received")
                 optimizer_func, raw_code = self.extract_func_and_code_from_response(response.content)
-                # with open("/Users/eric/src/problemsolver/src/problemsolver/optimizers/bioinspired/firefly.py", "r") as f:
+                # with open("/Users/eric/src/problemsolver/src/problemsolver/optimizers/sgd/adam.py", "r") as f:
                 #     loaded_text = f.read()
                 # optimizer_func, raw_code = self.extract_func_and_code_from_response(loaded_text)
 
@@ -886,6 +891,26 @@ CRITICAL THINKING:
 
 Produce valid Python code that defines TestOptimizer as specified."""
 
+    def _load_package_function(self, file_path: os.PathLike, module_name: str):
+        # Import the module using the full package path
+        full_module_name = f"problemsolver.data.temp.{module_name}"
+        spec = importlib.util.spec_from_file_location(full_module_name, file_path)
+        temp_module = importlib.util.module_from_spec(spec)
+
+        # Register the module in sys.modules
+        sys.modules[full_module_name] = temp_module
+
+        # Execute the module
+        spec.loader.exec_module(temp_module)
+
+        # Get the minimize function from the module
+        optimizer_class = temp_module.TestOptimizer
+
+        # Store the file path and module name for cleanup
+        optimizer_class._temp_file_path = str(file_path)
+        optimizer_class._temp_module_name = full_module_name
+
+        return optimizer_class
 
 class BlendedOptimizerGenerator(OptimizerGenerator):
     def __init__(self, *args, n_blend_examples: int = 3, **kwargs):
@@ -1026,8 +1051,8 @@ def inspire(api_key: str, api_base: str, model: str, n_pareto_attempts: int, n_t
 @click.option('--generator', default='nonconvex', type=str)
 @click.option('--function-generator', default='nonconvex', type=str)
 @click.option('--function-generator-kwargs', default='{}', type=str)
-@click.option('--max-allowed-time-per-function', default=MAX_ALLOWED_PROBLEM_TIME, type=float, help='Maximum allowed time per function')
-@click.option('--max-allowed-rolling-average-function-time', default=MAX_ALLOWED_ROLLING_AVERAGE_FUNCTION_TIME, type=float, help='Maximum allowed rolling average function time')
+@click.option('--max-allowed-time-per-function', default=None, type=float, help='Maximum allowed time per function')
+@click.option('--max-allowed-rolling-average-function-time', default=None, type=float, help='Maximum allowed rolling average function time')
 @click.option('--output-dir', default="data/output", help='Output directory')
 @click.option('--ideas-file', default="data/emergent_optimization_ideas.txt", help='File containing emergent optimization ideas')
 @click.option('--n-blend-examples', default=None, type=int, help='Number of code examples to blend for inspiration')
@@ -1061,6 +1086,8 @@ def sweep(api_key: str, api_base: str, model: str, start_index: int , n_pareto_a
     generator_pipeline = generator_pipeline_classes[generator]
 
     test_generator, max_problem_time, max_rolling_problem_time = FUNCTION_GENERATORS_AND_TIMEOUTS[function_generator]
+    max_allowed_time_per_function = max_allowed_time_per_function or max_problem_time
+    max_allowed_rolling_average_function_time = max_allowed_rolling_average_function_time or max_rolling_problem_time
     function_generator_kwargs = json.loads(function_generator_kwargs)
     wrapped_function_generator = partial(test_generator, **function_generator_kwargs)
 

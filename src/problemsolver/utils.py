@@ -140,40 +140,6 @@ def check_optimizer_annotations(optimizer: Callable):
     if not has_annotated_param:
         raise ValueError(f"No Annotated parameters with Interval")
 
-#
-# def _optimizer_worker(test_func, initial_guess):
-#     """
-#     Worker function to run an optimizer with timeout protection.
-#     This is a top-level function that can be pickled for multiprocessing.
-#
-#     Args:
-#         test_func: The TransformedFunction object with optimizer assigned
-#         initial_guess: Initial guess for optimization
-#
-#     Returns:
-#         The optimization result
-#     """
-#     # Set up timeout handler for this process
-#     def timeout_handler(signum, frame):
-#         raise TimeoutError(f"Optimizer execution exceeded timeout")
-#
-#     # Set signal handler for timeout
-#     signal.signal(signal.SIGALRM, timeout_handler)
-#     signal.alarm(30)  # Set a reasonable default timeout
-#
-#     try:
-#         # The optimizer is accessible via test_func.optimizer
-#         result = test_func.optimizer(fun=test_func.evaluate_at_x, initial_guess=initial_guess)
-#         return result
-#     finally:
-#         # Always cancel the alarm, even if an exception occurred
-#         try:
-#             signal.alarm(0)
-#         except Exception:
-#             # Ignore any errors from signal.alarm during cleanup
-#             pass
-
-
 def _evaluate_single_function(wrapped_func: ProblemFunction,
                               max_allowed_time_per_function: float,
                               **kwargs) -> tuple[float, float]:
@@ -260,7 +226,7 @@ def _run_optimizer_with_timeout(optimizer, test_func, initial_guess, timeout_sec
             pass
 
 
-def check_optimizer_function(optimizer: Callable, timeout_seconds: float = 5.0):
+def check_optimizer_function(optimizer: Callable, test_func, timeout_seconds: float = 5.0):
     """
     Check if an optimizer function works correctly with timeout protection.
     
@@ -274,7 +240,7 @@ def check_optimizer_function(optimizer: Callable, timeout_seconds: float = 5.0):
     """
     func_name = 'rastrigin'
     n_dims = 10
-    test_func, optimum_x = fun_generator.get_function_and_optimum(func_name, n_dims=n_dims)
+    # test_func, optimum_x = fun_generator.get_function_and_optimum(func_name, n_dims=n_dims)
     
     try:
         # Run optimizer with timeout protection
