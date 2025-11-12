@@ -728,6 +728,165 @@ Please create an improved version that addresses these specific issues. Focus on
         return False
 
 
+class SGDOptimizerGenerator(OptimizerGenerator):
+    @staticmethod
+    def get_system_prompt() -> str:
+        """Prompt guiding the LLM to build PyTorch SGD-style optimizers."""
+        return """You are an expert in neural network optimization, stochastic gradient descent, metaheuristics, and PyTorch internals.
+
+1. Think critically about how the given emergent behavior could inspire novel minimization techniques
+2. Consider the mathematical principles underlying the behavior, and underlying the landscape of deep learning loss functions
+3. Translate these principles into algorithmic components
+4. Design the algorithm to work with stochastic mini-batches and to leverage ideas from emergent/metaheuristic search to quickly produce optimal parameter estimates.
+5. Implement a working subclass of torch.optim.Optimizer and follows the specified signature
+6. Your answer should only be code and any docstrings; no preamble or explanation is allowed. Assume that your answer will be directly executed; any non-code non-commented text will cause an error.
+
+You must create a complete, runnable Python class that can be executed immediately. The function should be well-documented and follow Python best practices."""
+
+    @staticmethod
+    def get_requirements_prompt() -> str:
+        """Detailed requirements tailored for PyTorch SGD-style optimizer generation."""
+        return """
+# CONTEXT AND GOALS:
+Your task is to author a novel PyTorch Optimizer that subclasses torch.optim.Optimizer, is inspired by emergent systems or mathematical principals, and beats benchmarks at computation speed and loss minimization.
+Research has shown that the optimization surfaces for real-world neural networks are highly non-convex, with many saddle points and sharp minima. However, optimal solutions generally lie in wide, flat basins of attraction. Your optimizer should leverage mini-batch stochasticity and emergent behavior principles to effectively explore these complex landscapes while converging efficiently to high-quality minima.
+Your goal is to create novel optimization ideas which advance the frontier of research by leveraging methods from metaheuristic optimization and inspiration from natural systems with gradient-aware learning in Pytorch to solve hard ML training problems quickly.
+- Your method will be tested on a variety of neural network architectures, trained with stochastic mini-batches.
+- Each optimizer step receives gradients from the current mini-batch; full dataset gradients are unavailable.
+- A closure is provided so the optimizer may reevaluate the loss (at additional compute cost).
+- The objective is to achieve low training loss quickly; early stopping happens when `loss ≤ target` or learning rate falls below a threshold.
+- Avoid simple exploration/exploitation or canonical first- and second-order methods. Aim to create something new and innovative, fully utilizing the inspiration from naturally occurring systems.
+- Focus on both accuracy (finding good minima) and efficiency (total computation time) tested in the following way:
+  - Randomly generated problems will be used to tune the optimizer's hyperparameters with a standard hyperparameter tuner with a fixed budget.
+  - The tuned optimizer will be tested on a set of test functions drawn from the same distribution.
+  - Because the test functions are drawn randomly, you cannot attempt to overfit to the test metric.
+  - Problems which take more than a time limit (several seconds) to fit will be considered failures; consider this when designing your algorithm and use tensor/vector parallelization methods and other techniques to make your algorithm efficient.
+
+# REQUIRED OUTPUT:
+- Define TestOptimizer(torch.optim.Optimizer).  It should implement `__init__(self, params, **kwargs)` and `step(self, closure=None)` with access to closure. It may also implement `_init_group(...)` if needed to store additional per-parameter state in self.state[p].
+- At least one hyperparameter in init kwarg should be annotated for hyperparameter optimization with Annotated[type, Interval(...)] as described below
+- Handle optional kwargs gracefully, set sensible defaults, and validate ranges when needed.
+- Support arbitrary parameter shapes (conv nets, MLPs, embeddings, encoders/decoders).
+- Ensure numerical stability (avoid exploding/vanishing values, avoid division by zero, clamp denominators, etc.).
+
+DETAILS FOR HYPERPARAMETER OPTIMIZATION:
+- Standard hyperparameters in the TestOptimizer.__init__(params, <hyperparameters>) signature can be defined with default values
+- Hyperparameters which require tuning should be annotated using `Annotated[type, Interval(...)]` where `Interval` defines the range of values for hyperparameter optimization.
+- We will run a hyperparameter optimization script which will tune these annotated hyperparameters downstream.
+  - Because of the fixed hyperparameter optimization budget, we would recommend being judicious with the number of hyperparameters to tune (generally 2-4 is a good number)
+- The `Interval` class for annotation will be accessible in the environment where the function is executed, and is defined as follows:
+```
+class Interval:
+   # Optuna metadata class for use with parameter annotations using typing.Annotated
+   # Low and high are required, and must be numeric. 
+   # Step is optional, and should be None if log=True.
+    def __init__(self, low: int | float, high: int | float, step: int | float | None=None, log: bool=False):
+        ...  # Assignment to Interval properties
+```
+
+EXAMPLE CLASS SIGNATURE:
+Below is the outline of a successful TestOptimizer code sample, with the core logic omitted for brevity.
+```python
+class TestOptimizer(torch.optim.Optimizer):
+    def __init__(
+        self,
+        params,
+        lr: Annotated[float, Interval(low=1e-5, high=1e-2, log=True)] = 1e-3,
+        beta1: Annotated[float, Interval(low=0.8, high=0.99, step=0.05, log=False)] = 0.9,
+        weight_decay: Annotated[float, Interval(low=1e-9, high=1e-2, step=1e-3, log=True)] = 1e-9,
+        beta2: float = 0.999,
+        eps: float = 1e-8,
+    ):
+        defaults = dict(lr=lr, betas=(beta1, beta2), eps=eps, weight_decay=weight_decay)
+        super().__init__(params, defaults)
+
+    def _init_group(self, group, <other state lists>):
+        ...  # Initialize per-parameter state
+        return has_complex
+
+    @torch.no_grad()
+    def step(self, closure=None):
+        loss = None
+        if closure is not None:
+            with torch.enable_grad():
+                loss = closure()
+
+        for group in self.param_groups:
+            ... # initialize variables and state lists
+            params_with_grad, grads = [], []
+            has_complex = self._init_group(
+                group, params_with_grad, grads, <other state lists>
+            )
+
+            for i, p in enumerate(params_with_grad):
+                # Core optimization logic here
+                ....
+
+        return loss
+```
+
+# TRAINING LOOP (REFERENCE):
+Below outlines the approach used to run the optimizer until convergence for benchmarking purposes, on a sample training_model.
+```python
+optimizer = TestOptimizer(training_model.parameters(), **kwargs)
+scheduler = ReduceLROnPlateau(optimizer, threshold=1e-4, threshold_mode='rel', min_lr=1e-6)
+criterion = nn.MSELoss()
+
+for epoch in range(self.max_epochs):
+    epoch_start = time.time()
+    training_model.train()
+    running_loss = 0.0
+
+    for x, y in train_loader:
+        x = x.to(self.device)
+        y = y.to(self.device)
+        def closure():
+            optimizer.zero_grad()
+            y_hat = training_model(x)
+            loss = criterion(y_hat, y)
+            loss.backward()
+            return loss
+        loss = optimizer.step(closure)
+        running_loss += loss.item()
+
+    epoch_elapsed = time.time() - epoch_start
+    mean_sample_loss = running_loss / len(train_loader)
+    scheduler.step(mean_sample_loss)
+
+    if scheduler.get_last_lr()[0] <= 1e-6:
+        logger.info(f'Early stopping at epoch {epoch + 1} due to minimal learning rate.')
+        break
+
+    if mean_sample_loss <= self.min_loss:
+        logger.info(f'Early stopping at epoch {epoch + 1} due to loss target achieved.')
+        break
+```
+
+# IMPLEMENTATION CHECKLIST:
+- Think critically about how to use the insights from metaheuristic optimization and the naturally emergent system.
+- Respect torch.optim.Optimizer API expectations.
+- Ensure that TestOptimizer.init(params, <hyperparameters>) has some Annotated[type, Interval(...)] hyperparameters for tuning.
+- Keep code self-contained; import torch and typing.Annotated and problemsolver.utils.Interval at top.
+- Avoid defining redundant Interval classes; reuse provided problemsolver.utils.Interval."""
+
+    def get_generation_prompt(self, inspiration: str) -> str:
+        """Prompt the LLM to synthesize optimizer based on emergent inspiration."""
+        return f"""Design a PyTorch optimizer inspired by emergent behavior:
+
+# EMERGENT INSPIRATION:
+{inspiration}
+
+{self.get_requirements_prompt()}
+
+CRITICAL THINKING:
+- How does the emergent system explore complex landscapes yet converge efficiently?
+- What adaptive memory or coordination mechanisms translate to parameter updates?
+- How can mini-batch stochasticity be leveraged to infer basin geometry?
+- How do you maintain computational efficiency while introducing novel behaviors?
+
+Produce valid Python code that defines TestOptimizer as specified."""
+
+
 class BlendedOptimizerGenerator(OptimizerGenerator):
     def __init__(self, *args, n_blend_examples: int = 3, **kwargs):
         super().__init__(*args, **kwargs)
@@ -815,7 +974,7 @@ def inspire(api_key: str, api_base: str, model: str, n_pareto_attempts: int, n_t
     setup_logging(log_level)
 
     generator_pipeline_classes = {'nonconvex': BlendedOptimizerGenerator,
-                                  'sgd': None}
+                                  'sgd': SGDOptimizerGenerator}
     generator_pipeline = generator_pipeline_classes[generator]
 
     test_generator, max_problem_time, max_rolling_problem_time = FUNCTION_GENERATORS_AND_TIMEOUTS[function_generator]
@@ -889,7 +1048,7 @@ def sweep(api_key: str, api_base: str, model: str, start_index: int , n_pareto_a
 
     generator_pipeline_classes = {'nonconvex': BlendedOptimizerGenerator,
                                   'nonconvex_blend': BlendedOptimizerGenerator,
-                                  'sgd': None,
+                                  'sgd': SGDOptimizerGenerator,
                                   'sgd_blend': None}
 
     pipeline_kwargs = {}
