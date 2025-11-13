@@ -351,12 +351,12 @@ from problemsolver.utils import Interval
 
         for iteration in range(max_iterations):
             try:
-                response = self.llm.invoke(messages)
-                logger.info(f"Iteration {iteration + 1} optimizer generation: Response received")
-                optimizer_func, raw_code = self.extract_func_and_code_from_response(response.content)
-                # with open("/Users/eric/src/problemsolver/src/problemsolver/optimizers/sgd/adam.py", "r") as f:
-                #     loaded_text = f.read()
-                # optimizer_func, raw_code = self.extract_func_and_code_from_response(loaded_text)
+                # response = self.llm.invoke(messages)
+                # logger.info(f"Iteration {iteration + 1} optimizer generation: Response received")
+                # optimizer_func, raw_code = self.extract_func_and_code_from_response(response.content)
+                with open("/Users/eric/src/problemsolver/src/problemsolver/optimizers/sgd/adam.py", "r") as f:
+                    loaded_text = f.read()
+                optimizer_func, raw_code = self.extract_func_and_code_from_response(loaded_text)
 
                 # Validate and debug
                 logger.info(f"Iteration {iteration + 1} optimizer generation: Validating code")
